@@ -221,6 +221,50 @@ private:
 };
 
 template <class ELFT>
+class CheriMctSection final : public SyntheticSection<ELFT> {
+  typedef typename ELFT::uint uintX_t;
+
+public:
+  // Data capabilities accessed as:
+  //   CLC cd, rt, offset(cb)
+  // rt may be $zero; offset my be 0
+  //
+  // Procedure capabilities more interesting:
+  //   MOV $temp, offset
+  //   CIncOFfset $c, $mctp, $temp
+  //   CJR $c <or> CJALR $c, $csaved
+  //
+  // TODO: $mctp needs to be swapped out when crossing shared object boundaries
+  // Propopsed solution: MemCapDirectory
+  //                     MemCapTable[0] = MemCapDirectory
+  //
+  // Currently a simple layout; no local or page optimisations.
+  CheriMctSection();
+  void writeTo(uint8_t *Buf) override;
+  size_t getSize() const override { return Size; }
+  void finalize() override;
+  bool empty() const override;
+  void addEntry(SymbolBody &Sym, uintX_t Addend, RelExpr Expr);
+  //bool addDynTlsEntry(SymbolBody &Sym); TODO: TLS could get interesting?
+  //bool addTlsIndex(); TODO: TLS could get interesting?
+  uintX_t getPageEntryOffset(const SymbolBody &B, uintX_t Addend) const;
+  uintX_t getBodyEntryOffset(const SymbolBody &B, uintX_t Addend) const;
+  uintX_t getGlobalDynOffset(const SymbolBody &B) const;
+  unsigned getLocalEntriesNum() const;
+  unsigned getCp() const;
+
+private:
+  typedef std::pair<const SymbolBody *, uintX_t> MctEntry;
+  typedef std::vector<MctEntry> MctEntries;
+  llvm::DenseMap<MctEntry, size_t> EntryIndexMap;
+  MctEntries LocalEntries;
+  MctEntries LocalEntries32;
+  MctEntries GlobalEntries;
+
+  uintX_t Size = 0;
+};
+
+template <class ELFT>
 class GotPltSection final : public SyntheticSection<ELFT> {
   typedef typename ELFT::uint uintX_t;
 
@@ -764,6 +808,7 @@ template <class ELFT> struct In {
   static GdbIndexSection<ELFT> *GdbIndex;
   static GotSection<ELFT> *Got;
   static MipsGotSection<ELFT> *MipsGot;
+  static CheriMctSection<ELFT> *CheriMct;
   static GotPltSection<ELFT> *GotPlt;
   static IgotPltSection<ELFT> *IgotPlt;
   static HashTableSection<ELFT> *HashTab;
@@ -793,6 +838,7 @@ template <class ELFT> GdbIndexSection<ELFT> *In<ELFT>::GdbIndex;
 template <class ELFT> GnuHashTableSection<ELFT> *In<ELFT>::GnuHashTab;
 template <class ELFT> GotSection<ELFT> *In<ELFT>::Got;
 template <class ELFT> MipsGotSection<ELFT> *In<ELFT>::MipsGot;
+template <class ELFT> CheriMctSection<ELFT> *In<ELFT>::CheriMct;
 template <class ELFT> GotPltSection<ELFT> *In<ELFT>::GotPlt;
 template <class ELFT> IgotPltSection<ELFT> *In<ELFT>::IgotPlt;
 template <class ELFT> HashTableSection<ELFT> *In<ELFT>::HashTab;

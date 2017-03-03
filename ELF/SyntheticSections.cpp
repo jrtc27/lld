@@ -720,6 +720,144 @@ template <class ELFT> void MipsGotSection<ELFT>::writeTo(uint8_t *Buf) {
 }
 
 template <class ELFT>
+CheriMctSection<ELFT>::CheriMctSection()
+    : SyntheticSection<ELFT>(SHF_ALLOC | SHF_WRITE,
+                             SHT_PROGBITS, 32, ".cheri.mct") {} // TODO: Cheri128?
+
+template <class ELFT>
+void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, uintX_t Addend,
+                                     RelExpr Expr) {
+  // TODO:
+  auto AddEntry = [&](SymbolBody &S, uintX_t A, MctEntries &Items) {
+    if (S.isInMct() && !A)
+      return;
+    size_t NewIndex = Items.size();
+    if (!EntryIndexMap.insert({{&S, A}, NewIndex}).second)
+      return;
+    Items.emplace_back(&S, A);
+    if (!A)
+      S.MctIndex = NewIndex;
+  };
+  if (Expr == R_CHERI_MCTDATA11) {
+    AddEntry(Sym, Addend, LocalEntries);
+  } else {
+    AddEntry(Sym, Addend, LocalEntries32);
+    Sym.Is32BitCheriMct = true;
+  }
+}
+
+//template <class ELFT> bool CheriMctSection<ELFT>::addDynTlsEntry(SymbolBody &Sym) {
+//}
+
+// Reserves TLS entries for a TLS module ID and a TLS block offset.
+// In total it takes two GOT slots.
+//template <class ELFT> bool CheriMctSection<ELFT>::addTlsIndex() {
+//}
+
+template <class ELFT>
+typename CheriMctSection<ELFT>::uintX_t
+CheriMctSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
+                                          uintX_t Addend) const {
+  //const OutputSectionBase *OutSec =
+  //    cast<DefinedRegular<ELFT>>(&B)->Section->OutSec;
+  //uintX_t SecAddr = getMipsPageAddr(OutSec->Addr);
+  //uintX_t SymAddr = getMipsPageAddr(B.getVA<ELFT>(Addend));
+  //uintX_t Index = PageIndexMap.lookup(OutSec) + (SymAddr - SecAddr) / 0xffff;
+  //assert(Index < PageEntriesNum);
+  //return (HeaderEntriesNum + Index) * sizeof(uintX_t);
+  llvm_unreachable("CheriMctSection::getPageEntryOffset");
+  return 0; // TODO
+}
+
+template <class ELFT>
+typename CheriMctSection<ELFT>::uintX_t
+CheriMctSection<ELFT>::getBodyEntryOffset(const SymbolBody &B,
+                                          uintX_t Addend) const {
+  uintX_t Index = 0;
+  // Calculate offset of the MCT entries block: local, local32.
+  if (B.Is32BitCheriMct)
+    Index += LocalEntries.size();
+  // Calculate offset of the MCT entry in the block.
+  if (B.isInMct())
+    Index += B.MctIndex;
+  else {
+    auto It = EntryIndexMap.find({&B, Addend});
+    assert(It != EntryIndexMap.end());
+    Index += It->second;
+  }
+  return Index * 32; // TODO: Cheri128?
+}
+
+//template <class ELFT>
+//typename CheriMctSection<ELFT>::uintX_t
+//CheriMctSection<ELFT>::getTlsOffset() const {
+//  // TODO
+//  return (getLocalEntriesNum() + GlobalEntries.size()) * sizeof(uintX_t);
+//}
+
+//template <class ELFT>
+//typename CheriMctSection<ELFT>::uintX_t
+//CheriMctSection<ELFT>::getGlobalDynOffset(const SymbolBody &B) const {
+//  // TODO
+//  return B.GlobalDynIndex * sizeof(uintX_t);
+//}
+
+//template <class ELFT>
+//const SymbolBody *CheriMctSection<ELFT>::getFirstGlobalEntry() const {
+//  return GlobalEntries.empty() ? nullptr : GlobalEntries.front().first;
+//}
+
+template <class ELFT>
+unsigned CheriMctSection<ELFT>::getLocalEntriesNum() const {
+  return LocalEntries.size() + LocalEntries32.size();
+}
+
+template <class ELFT> void CheriMctSection<ELFT>::finalize() {
+  //PageEntriesNum = 0;
+  //for (std::pair<const OutputSectionBase *, size_t> &P : PageIndexMap) {
+  //  // For each output section referenced by GOT page relocations calculate
+  //  // and save into PageIndexMap an upper bound of MIPS GOT entries required
+  //  // to store page addresses of local symbols. We assume the worst case -
+  //  // each 64kb page of the output section has at least one GOT relocation
+  //  // against it. And take in account the case when the section intersects
+  //  // page boundaries.
+  //  P.second = PageEntriesNum;
+  //  PageEntriesNum += getMipsPageCount(P.first->Size);
+  //}
+  Size = (getLocalEntriesNum() + GlobalEntries.size()) * 32; // TODO: Cheri128?
+}
+
+template <class ELFT> bool CheriMctSection<ELFT>::empty() const {
+  return LocalEntries.empty() && LocalEntries32.empty() && GlobalEntries.empty();
+}
+
+template <class ELFT> unsigned CheriMctSection<ELFT>::getCp() const {
+  return ElfSym<ELFT>::CheriCp->template getVA<ELFT>(0);
+}
+
+template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
+  auto AddEntry = [&](const MctEntry &SA) {
+    uint8_t *Entry = Buf;
+    Buf += 32; // TODO: Cheri128?
+    const SymbolBody *Body = SA.first;
+    uintX_t Base = Body->template getVA<ELFT>(0);
+    uintX_t Offset = SA.second;
+    uintX_t Size = Body->template getSize<ELFT>();
+    if (Size == 0) {
+      error("missing size of symbol: " + Body->getName());
+    }
+    writeUint<ELFT>(Entry     , Base);
+    writeUint<ELFT>(Entry +  8, Offset);
+    writeUint<ELFT>(Entry + 16, Size);
+    writeUint<ELFT>(Entry + 24, 0); // TODO: Permissions o.O
+  };
+  std::for_each(std::begin(LocalEntries), std::end(LocalEntries), AddEntry);
+  std::for_each(std::begin(LocalEntries32), std::end(LocalEntries32), AddEntry);
+  std::for_each(std::begin(GlobalEntries), std::end(GlobalEntries), AddEntry);
+  // TODO: TLS
+}
+
+template <class ELFT>
 GotPltSection<ELFT>::GotPltSection()
     : SyntheticSection<ELFT>(SHF_ALLOC | SHF_WRITE, SHT_PROGBITS,
                              Target->GotPltEntrySize, ".got.plt") {}
@@ -2073,6 +2211,11 @@ template class elf::MipsGotSection<ELF32LE>;
 template class elf::MipsGotSection<ELF32BE>;
 template class elf::MipsGotSection<ELF64LE>;
 template class elf::MipsGotSection<ELF64BE>;
+
+template class elf::CheriMctSection<ELF32LE>;
+template class elf::CheriMctSection<ELF32BE>;
+template class elf::CheriMctSection<ELF64LE>;
+template class elf::CheriMctSection<ELF64BE>;
 
 template class elf::GotPltSection<ELF32LE>;
 template class elf::GotPltSection<ELF32BE>;

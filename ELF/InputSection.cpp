@@ -314,6 +314,7 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
   switch (Expr) {
   case R_HINT:
   case R_TLSDESC_CALL:
+  case R_MEMCAP:
     llvm_unreachable("cannot relocate hint relocs");
   case R_TLSLD:
     return In<ELFT>::Got->getTlsIndexOff() + A - In<ELFT>::Got->getSize();
@@ -407,6 +408,14 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
   case R_MIPS_TLSLD:
     return In<ELFT>::MipsGot->getVA() + In<ELFT>::MipsGot->getTlsOffset() +
            In<ELFT>::MipsGot->getTlsIndexOff() - In<ELFT>::MipsGot->getGp();
+  case R_CHERI_MCTDATA_OFF11:
+  case R_CHERI_MCTDATA_OFF32:
+    // In case of CHERI if an MCT relocation has non-zero addend this addend
+    // should be applied to the MCT entry content not to the MCT entry offset.
+    // That is why we use separate expression type.
+    return In<ELFT>::CheriMct->getVA() +
+           In<ELFT>::CheriMct->getBodyEntryOffset(Body, A) -
+           In<ELFT>::CheriMct->getCp();
   case R_PPC_OPD: {
     uint64_t SymVA = Body.getVA<ELFT>(A);
     // If we have an undefined weak symbol, we might get here with a symbol

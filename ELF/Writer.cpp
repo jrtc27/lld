@@ -132,9 +132,10 @@ StringRef elf::getOutputSectionName(StringRef Name) {
 }
 
 template <class ELFT> static bool needsInterpSection() {
-  return !Symtab<ELFT>::X->getSharedFiles().empty() &&
+  return !Config->DynamicLinker.empty();
+  /*return !Symtab<ELFT>::X->getSharedFiles().empty() &&
          !Config->DynamicLinker.empty() &&
-         !Script<ELFT>::X->ignoreInterpSection();
+         !Script<ELFT>::X->ignoreInterpSection();*/
 }
 
 template <class ELFT> void elf::writeResult() { Writer<ELFT>().run(); }
@@ -357,7 +358,7 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
   // Add MIPS-specific sections.
   bool HasDynSymTab =
       !Symtab<ELFT>::X->getSharedFiles().empty() || Config->pic() ||
-      Config->ExportDynamic;
+      Config->ExportDynamic || In<ELFT>::Interp;
   if (Config->isMIPS()) {
     if (!Config->Shared && HasDynSymTab) {
       In<ELFT>::MipsRldMap = make<MipsRldMapSection<ELFT>>();
@@ -399,6 +400,14 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
     Add(In<ELFT>::Dynamic);
     Add(In<ELFT>::DynStrTab);
     Add(In<ELFT>::RelaDyn);
+  } else if (Config->MipsCheriAbi) {
+    // We always need to add rel[a] to output if it has entries, since it
+    // contains the R_CHERI_MEMCAP relocations to instruct the runtime linker
+    // to initialise capabilities.
+    // TODO: This doesn't actually work, since dynamic section not added, which
+    // requires DynSymTab and DynStrTab. Instead, HasDynSymTab is set above
+    // when an interpreter is requested.
+    Add(In<ELFT>::RelaDyn);
   }
 
   // Add .got. MIPS' .got is so different from the other archs,
@@ -438,6 +447,11 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
   Add(In<ELFT>::Plt);
   In<ELFT>::Iplt = make<PltSection<ELFT>>(0);
   Add(In<ELFT>::Iplt);
+
+  if (Config->MipsCheriAbi) {
+    In<ELFT>::CheriMct = make<CheriMctSection<ELFT>>();
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::CheriMct);
+  }
 
   if (Config->EhFrameHdr) {
     In<ELFT>::EhFrameHdr = make<EhFrameHeader<ELFT>>();
@@ -598,7 +612,8 @@ template <class ELFT> bool elf::isRelroSection(const OutputSectionBase *Sec) {
     return true;
   if (Sec == Out<ELFT>::BssRelRo)
     return true;
-
+  if (In<ELFT>::CheriMct && Sec == In<ELFT>::CheriMct->OutSec)
+    return true;
   StringRef S = Sec->getName();
   return S == ".data.rel.ro" || S == ".ctors" || S == ".dtors" || S == ".jcr" ||
          S == ".eh_frame" || S == ".openbsd.randomdata";
@@ -810,6 +825,13 @@ template <class ELFT> void Writer<ELFT>::addReservedSymbols() {
     if (Symtab<ELFT>::X->find("__gnu_local_gp"))
       ElfSym<ELFT>::MipsLocalGp =
           Symtab<ELFT>::X->addAbsolute("__gnu_local_gp", STV_HIDDEN, STB_LOCAL);
+
+    // Define _cp for CHERI, similar to _gp.
+    // Default offset is 0x3ff*16 = 0x3ff0
+    // TODO: Rework to be handled more lke MipsGp again?
+    if (Config->MipsCheriAbi)
+      ElfSym<ELFT>::CheriCp =
+        cast<DefinedRegular<ELFT>>(addRegular("_cp", In<ELFT>::CheriMct, 0x3ff0)->body());
   }
 
   // In the assembly for 32 bit x86 the _GLOBAL_OFFSET_TABLE_ symbol
@@ -1173,10 +1195,10 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
        In<ELFT>::SymTab,    In<ELFT>::ShStrTab,   In<ELFT>::StrTab,
        In<ELFT>::VerDef,    In<ELFT>::DynStrTab,  In<ELFT>::GdbIndex,
        In<ELFT>::Got,       In<ELFT>::MipsGot,    In<ELFT>::IgotPlt,
-       In<ELFT>::GotPlt,    In<ELFT>::RelaDyn,    In<ELFT>::RelaIplt,
-       In<ELFT>::RelaPlt,   In<ELFT>::Plt,        In<ELFT>::Iplt,
-       In<ELFT>::Plt,       In<ELFT>::EhFrameHdr, In<ELFT>::VerSym,
-       In<ELFT>::VerNeed,   In<ELFT>::Dynamic});
+       In<ELFT>::GotPlt,    In<ELFT>::CheriMct,   In<ELFT>::RelaDyn,
+       In<ELFT>::RelaIplt,  In<ELFT>::RelaPlt,    In<ELFT>::Plt,
+       In<ELFT>::Iplt,      In<ELFT>::Plt,        In<ELFT>::EhFrameHdr,
+       In<ELFT>::VerSym,    In<ELFT>::VerNeed,    In<ELFT>::Dynamic});
 }
 
 template <class ELFT> void Writer<ELFT>::addPredefinedSections() {

@@ -234,9 +234,9 @@ public:
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
 };
 
-template <class ELFT> class MipsTargetInfo final : public TargetInfo {
+template <class ELFT> class MipsTargetInfoBase : public TargetInfo {
 public:
-  MipsTargetInfo();
+  MipsTargetInfoBase();
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
   int64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const override;
   bool isPicRel(uint32_t Type) const override;
@@ -251,6 +251,18 @@ public:
                   const SymbolBody &S) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   bool usesOnlyLowPageBits(uint32_t Type) const override;
+};
+
+template <class ELFT> class MipsTargetInfo final : public MipsTargetInfoBase<ELFT> {
+public:
+  MipsTargetInfo() : MipsTargetInfoBase<ELFT>() {}
+};
+
+template <class ELFT> class CheriTargetInfo final : public MipsTargetInfoBase<ELFT> {
+public:
+  CheriTargetInfo() : MipsTargetInfoBase<ELFT>() {}
+  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
+  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
 };
 } // anonymous namespace
 
@@ -267,7 +279,7 @@ TargetInfo *createTarget() {
     return make<ARMTargetInfo>();
   case EM_MIPS:
     if (Config->MipsCheriAbi)
-      return make<MipsTargetInfo<ELF64BE>>(); // TODO: custom target info?
+      return make<CheriTargetInfo<ELF64BE>>();
     switch (Config->EKind) {
     case ELF32LEKind:
       return make<MipsTargetInfo<ELF32LE>>();
@@ -277,6 +289,13 @@ TargetInfo *createTarget() {
       return make<MipsTargetInfo<ELF64LE>>();
     case ELF64BEKind:
       return make<MipsTargetInfo<ELF64BE>>();
+    default:
+      fatal("unsupported MIPS target");
+    }
+  case EM_CHERI256:
+    switch (Config->EKind) {
+    case ELF64BEKind:
+      return new CheriTargetInfo<ELF64BE>();
     default:
       fatal("unsupported MIPS target");
     }
@@ -2043,7 +2062,7 @@ bool ARMTargetInfo::isTlsInitialExecRel(uint32_t Type) const {
   return Type == R_ARM_TLS_IE32;
 }
 
-template <class ELFT> MipsTargetInfo<ELFT>::MipsTargetInfo() {
+template <class ELFT> MipsTargetInfoBase<ELFT>::MipsTargetInfoBase() {
   GotPltHeaderEntriesNum = 2;
   DefaultMaxPageSize = 65536;
   GotEntrySize = sizeof(typename ELFT::uint);
@@ -2073,7 +2092,7 @@ template <class ELFT> MipsTargetInfo<ELFT>::MipsTargetInfo() {
 }
 
 template <class ELFT>
-RelExpr MipsTargetInfo<ELFT>::getRelExpr(uint32_t Type,
+RelExpr MipsTargetInfoBase<ELFT>::getRelExpr(uint32_t Type,
                                          const SymbolBody &S) const {
   // See comment in the calculateMipsRelChain.
   if (ELFT::Is64Bits || Config->MipsN32Abi)
@@ -2145,27 +2164,29 @@ RelExpr MipsTargetInfo<ELFT>::getRelExpr(uint32_t Type,
   }
 }
 
-template <class ELFT> bool MipsTargetInfo<ELFT>::isPicRel(uint32_t Type) const {
+template <class ELFT> bool MipsTargetInfoBase<ELFT>::isPicRel(uint32_t Type) const {
   return Type == R_MIPS_32 || Type == R_MIPS_64;
 }
 
 template <class ELFT>
-uint32_t MipsTargetInfo<ELFT>::getDynRel(uint32_t Type) const {
+uint32_t MipsTargetInfoBase<ELFT>::getDynRel(uint32_t Type) const {
+  if (Type == R_MEMCAP)
+    return R_CHERI_MEMCAP;
   return RelativeRel;
 }
 
 template <class ELFT>
-bool MipsTargetInfo<ELFT>::isTlsLocalDynamicRel(uint32_t Type) const {
+bool MipsTargetInfoBase<ELFT>::isTlsLocalDynamicRel(uint32_t Type) const {
   return Type == R_MIPS_TLS_LDM;
 }
 
 template <class ELFT>
-bool MipsTargetInfo<ELFT>::isTlsGlobalDynamicRel(uint32_t Type) const {
+bool MipsTargetInfoBase<ELFT>::isTlsGlobalDynamicRel(uint32_t Type) const {
   return Type == R_MIPS_TLS_GD;
 }
 
 template <class ELFT>
-void MipsTargetInfo<ELFT>::writeGotPlt(uint8_t *Buf, const SymbolBody &) const {
+void MipsTargetInfoBase<ELFT>::writeGotPlt(uint8_t *Buf, const SymbolBody &) const {
   write32<ELFT::TargetEndianness>(Buf, In<ELFT>::Plt->getVA());
 }
 
@@ -2209,6 +2230,11 @@ template <endianness E> static void writeMipsLo16(uint8_t *Loc, uint64_t V) {
   write32<E>(Loc, (Instr & 0xffff0000) | (V & 0xffff));
 }
 
+template <endianness E> static void writeCheriMct11(uint8_t *Loc, uint64_t V) {
+  uint32_t Instr = read32<E>(Loc);
+  write32<E>(Loc, (Instr & 0xfffff800) | ((V >> 4) & 0x7ff));
+}
+
 template <class ELFT> static bool isMipsR6() {
   const auto &FirstObj = cast<ELFFileBase<ELFT>>(*Config->FirstElf);
   uint32_t Arch = FirstObj.getObj().getHeader()->e_flags & EF_MIPS_ARCH;
@@ -2216,7 +2242,7 @@ template <class ELFT> static bool isMipsR6() {
 }
 
 template <class ELFT>
-void MipsTargetInfo<ELFT>::writePltHeader(uint8_t *Buf) const {
+void MipsTargetInfoBase<ELFT>::writePltHeader(uint8_t *Buf) const {
   const endianness E = ELFT::TargetEndianness;
   if (Config->MipsN32Abi) {
     write32<E>(Buf, 0x3c0e0000);      // lui   $14, %hi(&GOTPLT[0])
@@ -2240,7 +2266,7 @@ void MipsTargetInfo<ELFT>::writePltHeader(uint8_t *Buf) const {
 }
 
 template <class ELFT>
-void MipsTargetInfo<ELFT>::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
+void MipsTargetInfoBase<ELFT>::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
                                     uint64_t PltEntryAddr, int32_t Index,
                                     unsigned RelOff) const {
   const endianness E = ELFT::TargetEndianness;
@@ -2255,7 +2281,7 @@ void MipsTargetInfo<ELFT>::writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
 }
 
 template <class ELFT>
-bool MipsTargetInfo<ELFT>::needsThunk(RelExpr Expr, uint32_t Type,
+bool MipsTargetInfoBase<ELFT>::needsThunk(RelExpr Expr, uint32_t Type,
                                       const InputFile *File,
                                       const SymbolBody &S) const {
   // Any MIPS PIC code function is invoked with its address in register $t9.
@@ -2278,7 +2304,7 @@ bool MipsTargetInfo<ELFT>::needsThunk(RelExpr Expr, uint32_t Type,
 }
 
 template <class ELFT>
-int64_t MipsTargetInfo<ELFT>::getImplicitAddend(const uint8_t *Buf,
+int64_t MipsTargetInfoBase<ELFT>::getImplicitAddend(const uint8_t *Buf,
                                                 uint32_t Type) const {
   const endianness E = ELFT::TargetEndianness;
   switch (Type) {
@@ -2343,7 +2369,7 @@ calculateMipsRelChain(uint8_t *Loc, uint32_t Type, uint64_t Val) {
 }
 
 template <class ELFT>
-void MipsTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
+void MipsTargetInfoBase<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
                                        uint64_t Val) const {
   const endianness E = ELFT::TargetEndianness;
   // Thread pointer and DRP offsets from the start of TLS data area.
@@ -2438,8 +2464,53 @@ void MipsTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
 }
 
 template <class ELFT>
-bool MipsTargetInfo<ELFT>::usesOnlyLowPageBits(uint32_t Type) const {
+bool MipsTargetInfoBase<ELFT>::usesOnlyLowPageBits(uint32_t Type) const {
   return Type == R_MIPS_LO16 || Type == R_MIPS_GOT_OFST;
+}
+
+template <class ELFT>
+RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
+                                          const SymbolBody &S) const {
+  // See comment in the calculateMipsRelChain.
+  if (ELFT::Is64Bits || Config->MipsN32Abi)
+    Type &= 0xff;
+  switch (Type) {
+  default:
+    return MipsTargetInfoBase<ELFT>::getRelExpr(Type, S);
+  case R_CHERI_MCTDATA11:
+    return R_CHERI_MCTDATA_OFF11;
+  case R_CHERI_MCTDATA_HI16:
+  case R_CHERI_MCTDATA_LO16:
+    return R_CHERI_MCTDATA_OFF32;
+  }
+}
+
+template <class ELFT>
+void CheriTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
+                                        uint64_t Val) const {
+  uint8_t *LocOrig = Loc;
+  uint32_t TypeOrig = Type;
+  uint64_t ValOrig = Val;
+  const endianness E = ELFT::TargetEndianness;
+  if (ELFT::Is64Bits || Config->MipsN32Abi)
+    std::tie(Type, Val) = calculateMipsRelChain(Loc, Type, Val);
+  switch (Type) {
+  default:
+    MipsTargetInfoBase<ELFT>::relocateOne(LocOrig, TypeOrig, ValOrig);
+    break;
+  case R_CHERI_MCTDATA11:
+    //warn("MCTDATA11 val: " + Val);
+    writeCheriMct11<E>(Loc, Val);
+    break;
+  case R_CHERI_MCTDATA_HI16:
+    //warn("MCTDATA_HI16 val: " + Val);
+    writeMipsHi16<E>(Loc, Val);
+    break;
+  case R_CHERI_MCTDATA_LO16:
+    //warn("MCTDATA_LO16 val: " + Val);
+    writeMipsLo16<E>(Loc, Val);
+    break;
+  }
 }
 }
 }

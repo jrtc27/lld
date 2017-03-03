@@ -71,6 +71,10 @@ static bool refersToGotEntry(RelExpr Expr) {
                         R_TLSGD_PC, R_TLSDESC, R_TLSDESC_PAGE>(Expr);
 }
 
+static bool refersToMctEntry(RelExpr Expr) {
+  return isRelExprOneOf<R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32>(Expr);
+}
+
 static bool isPreemptible(const SymbolBody &Body, uint32_t Type) {
   // In case of MIPS GP-relative relocations always resolve to a definition
   // in a regular input file, ignoring the one-definition rule. So we,
@@ -855,6 +859,14 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
       if (Constant || (!RelTy::IsRela && !Preemptible))
         In<ELFT>::Got->Relocations.push_back({GotRE, DynType, Off, 0, &Body});
       continue;
+    }
+
+    if (refersToMctEntry(Expr)) {
+      if (Config->MipsCheriAbi) {
+        In<ELFT>::CheriMct->addEntry(Body, Addend, Expr);
+        AddDyn({Target->getDynRel(R_MEMCAP), In<ELFT>::CheriMct,
+                Body.getMctOffset<ELFT>(), false, &Body, 0});
+      }
     }
   }
 }

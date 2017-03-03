@@ -76,6 +76,7 @@ public:
 
   bool isInGot() const { return GotIndex != -1U; }
   bool isInPlt() const { return PltIndex != -1U; }
+  bool isInMct() const { return MctIndex != -1U; }
 
   template <class ELFT> typename ELFT::uint getVA(int64_t Addend = 0) const;
 
@@ -84,6 +85,7 @@ public:
   template <class ELFT> typename ELFT::uint getGotPltOffset() const;
   template <class ELFT> typename ELFT::uint getGotPltVA() const;
   template <class ELFT> typename ELFT::uint getPltVA() const;
+  template <class ELFT> typename ELFT::uint getMctOffset() const;
   template <class ELFT> typename ELFT::uint getSize() const;
 
   // The file from which this symbol was created.
@@ -93,6 +95,7 @@ public:
   uint32_t GotIndex = -1;
   uint32_t GotPltIndex = -1;
   uint32_t PltIndex = -1;
+  uint32_t MctIndex = -1;
   uint32_t GlobalDynIndex = -1;
 
 protected:
@@ -124,6 +127,9 @@ public:
 
   // True if this symbol is in the Igot sub-section of the .got.plt or .got.
   unsigned IsInIgot : 1;
+
+  // True if this symbol is referenced by 32-bit MCT relocations.
+  unsigned Is32BitCheriMct : 1;
 
   // The following fields have the same meaning as the ELF symbol attributes.
   uint8_t Type;    // symbol type
@@ -347,6 +353,9 @@ template <class ELFT> struct ElfSym {
   static DefinedRegular<ELFT> *MipsGpDisp;
   static DefinedRegular<ELFT> *MipsLocalGp;
   static DefinedRegular<ELFT> *MipsGp;
+
+  // The content for _cp symbol for CHERI target.
+  static DefinedRegular<ELFT> *CheriCp;
 };
 
 template <class ELFT> DefinedSynthetic *ElfSym<ELFT>::EhdrStart;
@@ -359,6 +368,7 @@ template <class ELFT> DefinedSynthetic *ElfSym<ELFT>::End2;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::MipsGpDisp;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::MipsLocalGp;
 template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::MipsGp;
+template <class ELFT> DefinedRegular<ELFT> *ElfSym<ELFT>::CheriCp;
 
 // A real symbol object, SymbolBody, is usually stored within a Symbol. There's
 // always one Symbol for each symbol name. The resolver updates the SymbolBody

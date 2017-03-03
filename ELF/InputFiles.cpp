@@ -728,7 +728,7 @@ static ELFKind getBitcodeELFKind(MemoryBufferRef MB) {
   return T.isArch64Bit() ? ELF64BEKind : ELF32BEKind;
 }
 
-static uint8_t getBitcodeMachineKind(MemoryBufferRef MB) {
+static uint16_t getBitcodeMachineKind(MemoryBufferRef MB) {
   Triple T(check(getBitcodeTargetTriple(MB)));
   switch (T.getArch()) {
   case Triple::aarch64:
