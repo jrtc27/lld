@@ -612,18 +612,29 @@ template <class ELFT> void LinkerScript<ELFT>::removeEmptyCommands() {
   Opt.Commands.erase(Pos, Opt.Commands.end());
 }
 
-static bool isAllSectionDescription(const OutputSectionCommand &Cmd) {
-  for (const std::unique_ptr<BaseCommand> &I : Cmd.Commands)
-    if (!isa<InputSectionDescription>(*I))
+static bool hasNoDotAssignments(const OutputSectionCommand &Cmd) {
+  for (const std::unique_ptr<BaseCommand> &I : Cmd.Commands) {
+    const auto *Assign = dyn_cast<SymbolAssignment>(I.get());
+    if (Assign && Assign->Name == ".")
       return false;
+  }
   return true;
 }
 
 template <class ELFT> void LinkerScript<ELFT>::adjustSectionsBeforeSorting() {
-  // If the output section contains only symbol assignments, create a
-  // corresponding output section. The bfd linker seems to only create them if
-  // '.' is assigned to, but creating these section should not have any bad
-  // consequeces and gives us a section to put the symbol in.
+  // If the output section has dot assignments, create a corresponding output
+  // section. The bfd linker seems to only create them if '.' is assigned to;
+  // creating sections otherwise can have bad consequences, since the wrong
+  // type may be used.
+  //
+  // XXX: This is a hack for preinit_array and friends, since if no input file
+  // uses the section, the type is not known by LLD, so it will use the same as
+  // whatever comes before it, which is .MIPS.options for CHERI's linker
+  // script. BFD then chokes on this because it's not a known target-dependent
+  // section. The real fix would be to teach LLD the right types for these
+  // known sections, since a linker script could conceivably assign . inside an
+  // empty section (though CHERI's sandbox one doesn't), causing the section to
+  // be emitted and again tripping up BFD.
   uintX_t Flags = SHF_ALLOC;
   uint32_t Type = SHT_NOBITS;
   for (const std::unique_ptr<BaseCommand> &Base : Opt.Commands) {
@@ -637,7 +648,7 @@ template <class ELFT> void LinkerScript<ELFT>::adjustSectionsBeforeSorting() {
       continue;
     }
 
-    if (isAllSectionDescription(*Cmd))
+    if (hasNoDotAssignments(*Cmd))
       continue;
 
     auto *OutSec = make<OutputSection<ELFT>>(Cmd->Name, Type, Flags);
