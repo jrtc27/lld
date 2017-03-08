@@ -750,7 +750,7 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
     if (isRelExprOneOf<R_HINT, R_TLSDESC_CALL>(Expr))
       continue;
 
-    if (needsPlt(Expr) ||
+    if (needsPlt(Expr) || refersToMctEntry(Expr) ||
         refersToGotEntry(Expr) || !isPreemptible(Body, Type)) {
       // If the relocation points to something in the file, we can process it.
       bool Constant =
