@@ -844,7 +844,12 @@ template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
     uintX_t Offset = SA.second;
     uintX_t Size = Body->template getSize<ELFT>();
     if (Size == 0) {
-      error("missing size of symbol: " + Body->getName());
+      const OutputSectionBase *Sec = Body->template getSection<ELFT>();
+      if (Sec) {
+        Size = Sec->Size;
+        warn("missing size of symbol " + Body->getName() + ", using section size " + Twine(Size));
+      } else
+        error("missing size and section of symbol: " + Body->getName());
     }
     writeUint<ELFT>(Entry     , Base);
     writeUint<ELFT>(Entry +  8, Offset);

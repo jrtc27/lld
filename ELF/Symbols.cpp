@@ -95,6 +95,48 @@ static typename ELFT::uint getSymVA(const SymbolBody &Body, int64_t &Addend) {
   llvm_unreachable("invalid symbol kind");
 }
 
+template <class ELFT>
+static const OutputSectionBase *getSymSection(const SymbolBody &Body) {
+  switch (Body.kind()) {
+  case SymbolBody::DefinedSyntheticKind: {
+    auto &D = cast<DefinedSynthetic>(Body);
+    return D.Section;
+  }
+  case SymbolBody::DefinedRegularKind: {
+    auto &D = cast<DefinedRegular<ELFT>>(Body);
+    InputSectionBase<ELFT> *IS = D.Section;
+
+    // This is an absolute symbol.
+    if (!IS)
+      return nullptr;
+
+    return IS->getOutputSection();
+  }
+  case SymbolBody::DefinedCommonKind:
+    if (!Config->DefineCommon)
+      return nullptr;
+    return In<ELFT>::Common->OutSec;
+  case SymbolBody::SharedKind: {
+    auto &SS = cast<SharedSymbol<ELFT>>(Body);
+    if (SS.NeedsCopy)
+      return SS.Section->OutSec;
+    if (SS.NeedsPltAddr) {
+      if (SS.IsInIplt)
+        return In<ELFT>::Iplt->getOutputSection();
+      return In<ELFT>::Plt->getOutputSection();
+    }
+    return nullptr;
+  }
+  case SymbolBody::UndefinedKind:
+    return nullptr;
+  case SymbolBody::LazyArchiveKind:
+  case SymbolBody::LazyObjectKind:
+    assert(Body.symbol()->IsUsedInRegularObj && "lazy symbol reached writer");
+    return nullptr;
+  }
+  llvm_unreachable("invalid symbol kind");
+}
+
 SymbolBody::SymbolBody(Kind K, StringRefZ Name, bool IsLocal, uint8_t StOther,
                        uint8_t Type)
     : SymbolKind(K), NeedsCopy(false), NeedsPltAddr(false), IsLocal(IsLocal),
@@ -136,6 +178,11 @@ template <class ELFT>
 typename ELFT::uint SymbolBody::getVA(int64_t Addend) const {
   typename ELFT::uint OutVA = getSymVA<ELFT>(*this, Addend);
   return OutVA + Addend;
+}
+
+template <class ELFT>
+const OutputSectionBase *SymbolBody::getSection() const {
+  return getSymSection<ELFT>(*this);
 }
 
 template <class ELFT> typename ELFT::uint SymbolBody::getGotVA() const {
@@ -321,6 +368,11 @@ template uint32_t SymbolBody::template getVA<ELF32LE>(int64_t) const;
 template uint32_t SymbolBody::template getVA<ELF32BE>(int64_t) const;
 template uint64_t SymbolBody::template getVA<ELF64LE>(int64_t) const;
 template uint64_t SymbolBody::template getVA<ELF64BE>(int64_t) const;
+
+template const OutputSectionBase *SymbolBody::template getSection<ELF32LE>() const;
+template const OutputSectionBase *SymbolBody::template getSection<ELF32BE>() const;
+template const OutputSectionBase *SymbolBody::template getSection<ELF64LE>() const;
+template const OutputSectionBase *SymbolBody::template getSection<ELF64BE>() const;
 
 template uint32_t SymbolBody::template getGotVA<ELF32LE>() const;
 template uint32_t SymbolBody::template getGotVA<ELF32BE>() const;

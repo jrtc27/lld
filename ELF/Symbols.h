@@ -80,6 +80,8 @@ public:
 
   template <class ELFT> typename ELFT::uint getVA(int64_t Addend = 0) const;
 
+  template <class ELFT> const OutputSectionBase *getSection() const;
+
   template <class ELFT> typename ELFT::uint getGotOffset() const;
   template <class ELFT> typename ELFT::uint getGotVA() const;
   template <class ELFT> typename ELFT::uint getGotPltOffset() const;
