@@ -2398,6 +2398,7 @@ void MipsTargetInfoBase<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
     write32<E>(Loc, (read32<E>(Loc) & ~0x3ffffff) | ((Val >> 2) & 0x3ffffff));
     break;
   case R_MIPS_GOT16:
+  case R_MIPS_GOT_PAGE:
     // The R_MIPS_GOT16 relocation's value in "relocatable" linking mode
     // is updated addend (not a GOT index). In that case write high 16 bits
     // to store a correct addend value.
@@ -2409,7 +2410,6 @@ void MipsTargetInfoBase<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
     }
     break;
   case R_MIPS_GOT_DISP:
-  case R_MIPS_GOT_PAGE:
   case R_MIPS_GPREL16:
   case R_MIPS_TLS_GD:
   case R_MIPS_TLS_LDM:
