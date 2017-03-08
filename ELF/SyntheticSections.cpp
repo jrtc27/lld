@@ -843,7 +843,13 @@ template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
     uintX_t Base = Body->template getVA<ELFT>(0);
     uintX_t Offset = SA.second;
     uintX_t Size = Body->template getSize<ELFT>();
-    if (Size == 0) {
+    if (!Body->isDefined()) {
+      if (Body->isPreemptible())
+        error("undefined preemptible symbols are not supported yet: " + Body->getName());
+      else if (!Body->symbol()->isWeak())
+        error("undefined non-weak symbols are not supported yet: " + Body->getName());
+      // Otherwise this is a weak symbol, so emit a NULL capability
+    } else if (Size == 0) {
       const OutputSectionBase *Sec = Body->template getSection<ELFT>();
       if (Sec) {
         Size = Sec->Size;
