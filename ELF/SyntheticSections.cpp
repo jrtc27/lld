@@ -843,12 +843,15 @@ template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
     uintX_t Base = Body->template getVA<ELFT>(0);
     uintX_t Offset = SA.second;
     uintX_t Size = Body->template getSize<ELFT>();
-    if (!Body->isDefined()) {
+    // XXX: Seems init_array_start and friends are regarded as defined with no
+    //      base address when the relevant section isn't present. Additionally,
+    //      they aren't marked as weak.
+    if (!Body->isDefined() || (Base == 0 && Size == 0)) {
       if (Body->isPreemptible())
         error("undefined preemptible symbols are not supported yet: " + Body->getName());
-      else if (!Body->symbol()->isWeak())
+      else if (!Body->symbol()->isWeak() && Body->kind() != SymbolBody::DefinedSyntheticKind)
         error("undefined non-weak symbols are not supported yet: " + Body->getName());
-      // Otherwise this is a weak symbol, so emit a NULL capability
+      // Otherwise this is a weak (or synthetic) symbol, so emit a NULL capability
     } else if (Size == 0) {
       const OutputSectionBase *Sec = Body->template getSection<ELFT>();
       if (Sec) {
