@@ -2382,23 +2382,16 @@ void MipsTargetInfoBase<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
     Val -= 0x7000;
   if (ELFT::Is64Bits || Config->MipsN32Abi)
     std::tie(Type, Val) = calculateMipsRelChain(Loc, Type, Val);
-  // XXX: FIXME: This needs attention for relocatable output
   switch (Type) {
+  case R_MIPS_32:
   case R_MIPS_GPREL32:
   case R_MIPS_TLS_DTPREL32:
   case R_MIPS_TLS_TPREL32:
-    if (Config->Relocatable)
-      break;
-  // fallthrough
-  case R_MIPS_32:
     write32<E>(Loc, Val);
     break;
+  case R_MIPS_64:
   case R_MIPS_TLS_DTPREL64:
   case R_MIPS_TLS_TPREL64:
-    if (Config->Relocatable)
-      break;
-  // fallthrough
-  case R_MIPS_64:
     write64<E>(Loc, Val);
     break;
   case R_MIPS_26:
@@ -2420,34 +2413,25 @@ void MipsTargetInfoBase<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_MIPS_GPREL16:
   case R_MIPS_TLS_GD:
   case R_MIPS_TLS_LDM:
-    if (Config->Relocatable)
-      break;
     checkInt<16>(Loc, Val, Type);
-    writeMipsLo16<E>(Loc, Val);
-    break;
+  // fallthrough
   case R_MIPS_CALL16:
   case R_MIPS_CALL_LO16:
   case R_MIPS_GOT_LO16:
   case R_MIPS_GOT_OFST:
+  case R_MIPS_LO16:
+  case R_MIPS_PCLO16:
   case R_MIPS_TLS_DTPREL_LO16:
   case R_MIPS_TLS_GOTTPREL:
   case R_MIPS_TLS_TPREL_LO16:
-    if (Config->Relocatable)
-      break;
-  // fallthrough
-  case R_MIPS_LO16:
-  case R_MIPS_PCLO16:
     writeMipsLo16<E>(Loc, Val);
     break;
   case R_MIPS_CALL_HI16:
   case R_MIPS_GOT_HI16:
-  case R_MIPS_TLS_DTPREL_HI16:
-  case R_MIPS_TLS_TPREL_HI16:
-    if (Config->Relocatable)
-      break;
-  // fallthrough
   case R_MIPS_HI16:
   case R_MIPS_PCHI16:
+  case R_MIPS_TLS_DTPREL_HI16:
+  case R_MIPS_TLS_TPREL_HI16:
     writeMipsHi16<E>(Loc, Val);
     break;
   case R_MIPS_HIGHER:
@@ -2515,19 +2499,15 @@ void CheriTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
     MipsTargetInfoBase<ELFT>::relocateOne(LocOrig, TypeOrig, ValOrig);
     break;
   case R_CHERI_MCTDATA11:
-    if (Config->Relocatable)
-      break;
-    checkInt<15>(Loc, Val, Type);
+    //warn("MCTDATA11 val: " + Val);
     writeCheriMct11<E>(Loc, Val);
     break;
   case R_CHERI_MCTDATA_HI16:
-    if (Config->Relocatable)
-      break;
+    //warn("MCTDATA_HI16 val: " + Val);
     writeMipsHi16<E>(Loc, Val);
     break;
   case R_CHERI_MCTDATA_LO16:
-    if (Config->Relocatable)
-      break;
+    //warn("MCTDATA_LO16 val: " + Val);
     writeMipsLo16<E>(Loc, Val);
     break;
   }
