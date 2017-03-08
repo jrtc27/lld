@@ -865,7 +865,7 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
     if (refersToMctEntry(Expr)) {
       if (Config->MipsCheriAbi) {
         In<ELFT>::CheriMct->addEntry(Body, Addend, Expr);
-        AddDyn({Target->getDynRel(R_MEMCAP), In<ELFT>::CheriMct,
+        AddDyn({Target->getDynRel(R_CHERI_MEMCAP), In<ELFT>::CheriMct,
                 Body.getMctOffset<ELFT>(), false, &Body, 0});
       }
     }

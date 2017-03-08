@@ -2170,8 +2170,8 @@ template <class ELFT> bool MipsTargetInfoBase<ELFT>::isPicRel(uint32_t Type) con
 
 template <class ELFT>
 uint32_t MipsTargetInfoBase<ELFT>::getDynRel(uint32_t Type) const {
-  if (Type == R_MEMCAP)
-    return R_CHERI_MEMCAP;
+  if (Type == R_CHERI_MEMCAP)
+    return Type;
   return RelativeRel;
 }
 
