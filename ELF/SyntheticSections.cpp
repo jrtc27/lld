@@ -494,12 +494,12 @@ void MipsGotSection<ELFT>::addEntry(SymbolBody &Sym, int64_t Addend,
   // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
   if (Expr == R_MIPS_GOT_LOCAL_PAGE) {
     // At this point we do not know final symbol value so to reduce number
-    // of allocated GOT entries do the following trick. Save all output
+    // of allocated GOT entries do the following trick. Save all input
     // sections referenced by GOT relocations. Then later in the `finalize`
-    // method calculate number of "pages" required to cover all saved output
-    // section and allocate appropriate number of GOT entries.
+    // method calculate number of "pages" required to cover all saved input
+    // sections and allocate appropriate number of GOT entries.
     auto *DefSym = cast<DefinedRegular<ELFT>>(&Sym);
-    PageIndexMap.insert({DefSym->Section->getOutputSection(), 0});
+    PageIndexMap.insert({DefSym->Section, 0});
     return;
   }
   if (Sym.isTls()) {
@@ -569,11 +569,10 @@ template <class ELFT>
 typename MipsGotSection<ELFT>::uintX_t
 MipsGotSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
                                          int64_t Addend) const {
-  const OutputSectionBase *OutSec =
-      cast<DefinedRegular<ELFT>>(&B)->Section->getOutputSection();
-  uintX_t SecAddr = getMipsPageAddr(OutSec->Addr);
+  const InputSectionBase<ELFT> *InSec = cast<DefinedRegular<ELFT>>(&B)->Section;
+  uintX_t SecAddr = getMipsPageAddr(InSec->getOffset(0));
   uintX_t SymAddr = getMipsPageAddr(B.getVA<ELFT>(Addend));
-  uintX_t Index = PageIndexMap.lookup(OutSec) + (SymAddr - SecAddr) / 0xffff;
+  uintX_t Index = PageIndexMap.lookup(InSec) + (SymAddr - SecAddr) / 0xffff;
   assert(Index < PageEntriesNum);
   return (HeaderEntriesNum + Index) * sizeof(uintX_t);
 }
@@ -626,15 +625,19 @@ unsigned MipsGotSection<ELFT>::getLocalEntriesNum() const {
 
 template <class ELFT> void MipsGotSection<ELFT>::finalize() {
   PageEntriesNum = 0;
-  for (std::pair<const OutputSectionBase *, size_t> &P : PageIndexMap) {
-    // For each output section referenced by GOT page relocations calculate
+  for (std::pair<const InputSectionBase<ELFT> *, size_t> &P : PageIndexMap) {
+    // For each input section referenced by GOT page relocations calculate
     // and save into PageIndexMap an upper bound of MIPS GOT entries required
     // to store page addresses of local symbols. We assume the worst case -
-    // each 64kb page of the output section has at least one GOT relocation
+    // each 64kb page of the input section has at least one GOT relocation
     // against it. And take in account the case when the section intersects
     // page boundaries.
+    //
+    // Note that, while using output sections would give less wasted space, if
+    // linker scripts are used the non-synthetic output sections have not yet
+    // been filled, so their size is 0 and thus can't be used.
     P.second = PageEntriesNum;
-    PageEntriesNum += getMipsPageCount(P.first->Size);
+    PageEntriesNum += getMipsPageCount(P.first->getSize());
   }
   Size = (getLocalEntriesNum() + GlobalEntries.size() + TlsEntries.size()) *
          sizeof(uintX_t);
@@ -676,9 +679,9 @@ template <class ELFT> void MipsGotSection<ELFT>::writeTo(uint8_t *Buf) {
   P[1] = uintX_t(1) << (ELFT::Is64Bits ? 63 : 31);
   Buf += HeaderEntriesNum * sizeof(uintX_t);
   // Write 'page address' entries to the local part of the GOT.
-  for (std::pair<const OutputSectionBase *, size_t> &L : PageIndexMap) {
-    size_t PageCount = getMipsPageCount(L.first->Size);
-    uintX_t FirstPageAddr = getMipsPageAddr(L.first->Addr);
+  for (std::pair<const InputSectionBase<ELFT> *, size_t> &L : PageIndexMap) {
+    size_t PageCount = getMipsPageCount(L.first->getSize());
+    uintX_t FirstPageAddr = getMipsPageAddr(L.first->getOffset(0));
     for (size_t PI = 0; PI < PageCount; ++PI) {
       uint8_t *Entry = Buf + (L.second + PI) * sizeof(uintX_t);
       writeUint<ELFT>(Entry, FirstPageAddr + PI * 0x10000);
