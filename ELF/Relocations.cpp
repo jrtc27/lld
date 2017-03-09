@@ -374,6 +374,19 @@ static bool isStaticLinkTimeConstant(RelExpr E, uint32_t Type,
     return true;
   }
 
+  // XXX: BFD seems to treat these as being OK, and treats them as if the
+  //      output were non-PIC.
+  // TODO: Check this is correct and refactor...
+  if (Config->isMIPS()) {
+    switch (Type) {
+      case R_MIPS_HIGHEST:
+      case R_MIPS_HIGHER:
+      case R_MIPS_HI16:
+      case R_MIPS_LO16:
+        return true;
+    }
+  }
+
   return Target->usesOnlyLowPageBits(Type);
 }
 
