@@ -331,11 +331,14 @@ static bool isStaticLinkTimeConstant(RelExpr E, uint32_t Type,
                      R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32>(E))
     return true;
 
-    if (S.Name == "__cap_relocs") {
-      // cap relocs are always link time constants (even in PIC code)
-      // errs() << toString(E) << format("(%d)+(0x%llx) against ", Type, (unsigned long long)RelOff) << toString(Body) << ": absval=" << AbsVal << ", isRelExpr(E)=" << RelE << "\n";
-      return true;
-  }
+  // XXX: No they're not; REL32/64/NONE is emitted to relocate the struct
+  //      contents? Alternatively, if they are treated as constants and these
+  //      relocations aren't emitted, RTLD needs updating to add relocbase.
+  //if (S.Name == "__cap_relocs") {
+  //    // cap relocs are always link time constants (even in PIC code)
+  //    // errs() << toString(E) << format("(%d)+(0x%llx) against ", Type, (unsigned long long)RelOff) << toString(Body) << ": absval=" << AbsVal << ", isRelExpr(E)=" << RelE << "\n";
+  //    return true;
+  //}
 
   // These never do, except if the entire file is position dependent or if
   // only the low bits are used.
@@ -684,6 +687,12 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
 
   // HACK: for some reason clang generates absolute relocations in .eh_frame
   if (Config->isMIPS() && C.Name == ".eh_frame") {
+    IsWrite = true;
+  }
+
+  // HACK: clang emits a read-only __cap_relocs, but for PIC code we need to
+  //       emit dynamic relocations for its contents (REL32/64/NONE).
+  if (Config->isMIPS() && Config->pic() && C.Name == "__cap_relocs") {
     IsWrite = true;
   }
 
