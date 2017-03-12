@@ -570,7 +570,8 @@ typename MipsGotSection<ELFT>::uintX_t
 MipsGotSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
                                          int64_t Addend) const {
   const InputSectionBase<ELFT> *InSec = cast<DefinedRegular<ELFT>>(&B)->Section;
-  uintX_t SecAddr = getMipsPageAddr(InSec->getOffset(0));
+  const OutputSectionBase *OutSec = InSec->getOutputSection();
+  uintX_t SecAddr = getMipsPageAddr(OutSec->Addr + InSec->getOffset(0));
   uintX_t SymAddr = getMipsPageAddr(B.getVA<ELFT>(Addend));
   uintX_t Index = PageIndexMap.lookup(InSec) + (SymAddr - SecAddr) / 0xffff;
   assert(Index < PageEntriesNum);
@@ -680,8 +681,9 @@ template <class ELFT> void MipsGotSection<ELFT>::writeTo(uint8_t *Buf) {
   Buf += HeaderEntriesNum * sizeof(uintX_t);
   // Write 'page address' entries to the local part of the GOT.
   for (std::pair<const InputSectionBase<ELFT> *, size_t> &L : PageIndexMap) {
+    const OutputSectionBase *OutSec = L.first->getOutputSection();
     size_t PageCount = getMipsPageCount(L.first->getSize());
-    uintX_t FirstPageAddr = getMipsPageAddr(L.first->getOffset(0));
+    uintX_t FirstPageAddr = getMipsPageAddr(OutSec->Addr + L.first->getOffset(0));
     for (size_t PI = 0; PI < PageCount; ++PI) {
       uint8_t *Entry = Buf + (L.second + PI) * sizeof(uintX_t);
       writeUint<ELFT>(Entry, FirstPageAddr + PI * 0x10000);
