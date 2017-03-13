@@ -1101,6 +1101,11 @@ template <class ELFT> void DynamicSection<ELFT>::finalize() {
     add({DT_PLTGOT, In<ELFT>::MipsGot});
     if (In<ELFT>::MipsRldMap)
       add({DT_MIPS_RLD_MAP, In<ELFT>::MipsRldMap});
+
+    if (Config->MipsCheriAbi) {
+      add({DT_CHERI_MCT, In<ELFT>::CheriMct});
+      add({DT_CHERI_MCTSZ, In<ELFT>::CheriMct->OutSec->Size});
+    }
   }
 
   this->OutSec->Entsize = this->Entsize;
