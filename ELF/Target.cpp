@@ -2482,6 +2482,14 @@ RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
   case R_CHERI_MCTDATA_HI16:
   case R_CHERI_MCTDATA_LO16:
     return R_CHERI_MCTDATA_OFF32;
+  case R_CHERI_BASE64:
+    return R_CHERI_BASE;
+  case R_CHERI_OFFSET64:
+    return R_CHERI_OFFSET;
+  case R_CHERI_SIZE64:
+    return R_CHERI_SIZE;
+  case R_CHERI_MEMCAP:
+    return R_MEMCAP;
   }
 }
 
@@ -2509,6 +2517,13 @@ void CheriTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_CHERI_MCTDATA_LO16:
     //warn("MCTDATA_LO16 val: " + Val);
     writeMipsLo16<E>(Loc, Val);
+    break;
+  case R_CHERI_MEMCAP:
+    break;
+  case R_CHERI_BASE64:
+  case R_CHERI_OFFSET64:
+  case R_CHERI_SIZE64:
+    write64<E>(Loc, Val);
     break;
   }
 }

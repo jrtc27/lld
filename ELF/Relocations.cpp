@@ -891,6 +891,10 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
                 Body.getMctOffset<ELFT>(), false, &Body, 0});
       }
     }
+
+    if (Expr == R_MEMCAP) {
+      AddDyn({Target->getDynRel(Type), &C, Offset, false, &Body, Addend});
+    }
   }
 }
 
