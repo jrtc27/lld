@@ -308,26 +308,6 @@ static uint64_t getAArch64UndefinedRelativeWeakVA(uint64_t Type, uint64_t A,
 }
 
 template <class ELFT>
-static void
-getSymbolMemcap(const SymbolBody &Body, uint64_t &Base,
-                uint64_t &Offset, uint64_t &Size) {
-  Base = Body.getVA<ELFT>();
-  Offset = 0;
-  Size = Body.getSize<ELFT>();
-  if (&Body == ElfSym<ELFT>::CheriCp) {
-    Base -= 0x3ff0;
-    Offset += 0x3ff0;
-    Size = In<ELFT>::CheriMct->getSize();
-  }
-  if (Size == 0) {
-    // TODO: Fall back on section bounds
-    // TODO: How are undefined symbols treated?
-    fprintf(stderr, "%s\n", Body.getName().str().c_str());
-    llvm_unreachable("Symbol has 0 size");
-  }
-}
-
-template <class ELFT>
 static typename ELFT::uint
 getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
                  const SymbolBody &Body, RelExpr Expr) {
@@ -441,7 +421,7 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
   case R_CHERI_OFFSET:
   case R_CHERI_SIZE: {
     uint64_t Base, Offset, Size;
-    getSymbolMemcap<ELFT>(Body, Base, Offset, Size);
+    Target->getSymbolMemcapBounds(Body, Base, Offset, Size);
     switch (Expr) {
       case R_CHERI_BASE:
         return Base + A;
@@ -453,6 +433,8 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
         llvm_unreachable("Unhandled expression");
     }
   }
+  case R_CHERI_PERMS:
+    return Target->getSymbolMemcapPerms(Body);
   case R_PPC_OPD: {
     uint64_t SymVA = Body.getVA<ELFT>(A);
     // If we have an undefined weak symbol, we might get here with a symbol

@@ -98,6 +98,10 @@ public:
   virtual void relaxTlsGdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const;
   virtual void relaxTlsIeToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const;
   virtual void relaxTlsLdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const;
+
+  virtual void getSymbolMemcapBounds(const SymbolBody &S, uint64_t &Base,
+                                     uint64_t &Offset, uint64_t &Size) const;
+  virtual uint64_t getSymbolMemcapPerms(const SymbolBody &S) const;
 };
 
 uint64_t getPPC64TocBase();

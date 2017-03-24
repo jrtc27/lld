@@ -46,6 +46,7 @@ enum RelExpr {
   R_CHERI_BASE,
   R_CHERI_OFFSET,
   R_CHERI_SIZE,
+  R_CHERI_PERMS,
   R_MEMCAP,
   R_NEG_TLS,
   R_PAGE_PC,

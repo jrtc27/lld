@@ -263,6 +263,9 @@ public:
   CheriTargetInfo() : MipsTargetInfoBase<ELFT>() {}
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
+  void getSymbolMemcapBounds(const SymbolBody &S, uint64_t &Base, uint64_t &Offset,
+                             uint64_t &Size) const override;
+  uint64_t getSymbolMemcapPerms(const SymbolBody &S) const override;
 };
 } // anonymous namespace
 
@@ -361,6 +364,17 @@ void TargetInfo::relaxTlsIeToLe(uint8_t *Loc, uint32_t Type,
 void TargetInfo::relaxTlsLdToLe(uint8_t *Loc, uint32_t Type,
                                 uint64_t Val) const {
   llvm_unreachable("Should not have claimed to be relaxable");
+}
+
+void TargetInfo::getSymbolMemcapBounds(const SymbolBody &S,
+                                       uint64_t &Base,
+                                       uint64_t &Offset,
+                                       uint64_t &Size) const {
+  llvm_unreachable("Target does not support capabilities");
+}
+
+uint64_t TargetInfo::getSymbolMemcapPerms(const SymbolBody &S) const {
+  llvm_unreachable("Target does not support capabilities");
 }
 
 X86TargetInfo::X86TargetInfo() {
@@ -2488,6 +2502,8 @@ RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
     return R_CHERI_OFFSET;
   case R_CHERI_SIZE64:
     return R_CHERI_SIZE;
+  case R_CHERI_PERMS64:
+    return R_CHERI_PERMS;
   case R_CHERI_MEMCAP:
     return R_MEMCAP;
   }
@@ -2523,9 +2539,93 @@ void CheriTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
   case R_CHERI_BASE64:
   case R_CHERI_OFFSET64:
   case R_CHERI_SIZE64:
+  case R_CHERI_PERMS64:
     write64<E>(Loc, Val);
     break;
   }
+}
+
+template <class ELFT>
+void CheriTargetInfo<ELFT>::getSymbolMemcapBounds(const SymbolBody &S,
+                                                  uint64_t &Base,
+                                                  uint64_t &Offset,
+                                                  uint64_t &Size) const {
+  Base = S.getVA<ELFT>();
+  Offset = 0;
+  Size = S.getSize<ELFT>();
+  if (!S.isDefined() || (Base == 0 && Size == 0)) {
+    if (S.isPreemptible())
+      error("undefined preemptible symbols are not supported yet: " + S.getName());
+    else if (!S.symbol()->isWeak() && S.kind() != SymbolBody::DefinedSyntheticKind)
+      error("undefined non-weak symbols are not supported yet: " + S.getName());
+    // Otherwise this is a weak (or synthetic) symbol, so emit a NULL capability
+  } else if (Size == 0) {
+    const OutputSectionBase *Sec = S.template getSection<ELFT>();
+    if (Sec) {
+      Offset = Base - Sec->Addr;
+      Base = Sec->Addr;
+      Size = Sec->Size;
+      // TODO: Split out into function for known sizeless symbols for which
+      //       there should be no warning.
+      if (&S != ElfSym<ELFT>::CheriCp)
+        warn("missing size of symbol " + S.getName() + ", using section bounds of " + Sec->Name);
+    } else
+      error("missing size and section of symbol: " + S.getName() + "(base " + Twine(Base) + ", kind " + Twine(S.kind()) + ")");
+  }
+}
+
+// TODO: Put these definitions somewhere else
+#define CHERI_CAP_PERMISSION_ACCESS_EPCC 1024
+#define CHERI_CAP_PERMISSION_ACCESS_KCC 4096
+#define CHERI_CAP_PERMISSION_ACCESS_KDC 2048
+#define CHERI_CAP_PERMISSION_ACCESS_KR1C 8192
+#define CHERI_CAP_PERMISSION_ACCESS_KR2C 16384
+#define CHERI_CAP_PERMISSION_GLOBAL 1
+#define CHERI_CAP_PERMISSION_PERMIT_EXECUTE 2
+#define CHERI_CAP_PERMISSION_PERMIT_LOAD 4
+#define CHERI_CAP_PERMISSION_PERMIT_LOAD_CAPABILITY 16
+#define CHERI_CAP_PERMISSION_PERMIT_SEAL 128
+#define CHERI_CAP_PERMISSION_PERMIT_STORE 8
+#define CHERI_CAP_PERMISSION_PERMIT_STORE_CAPABILITY 32
+#define CHERI_CAP_PERMISSION_PERMIT_STORE_LOCAL 64
+
+template <class ELFT>
+uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const {
+  const OutputSectionBase *Sec = S.getSection<ELFT>();
+  if (!Sec) {
+    error("missing section of symbol: " + S.getName());
+    return 0;
+  }
+
+  if (Sec->Type != SHT_PROGBITS) {
+    error("invalid permissions relocation for symbol " + S.getName() + " in non-SHT_PROGBITS section " + Sec->getName());
+    return 0;
+  }
+
+  uint64_t Perms = 0;
+  // TODO: Should this sometimes be local instead?
+  Perms |= CHERI_CAP_PERMISSION_GLOBAL;
+  Perms |= CHERI_CAP_PERMISSION_PERMIT_LOAD;
+  // TODO: SEAL?
+
+  if (Sec->Flags & SHF_WRITE && !isRelroSection<ELFT>(Sec)) {
+    if (Sec->Flags & SHF_EXECINSTR) {
+      error("invalid permissions relocation for symbol " + S.getName() + " in writable and executable section " + Sec->getName());
+      return 0;
+    }
+
+    Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE;
+    Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE_CAPABILITY;
+    // TODO: STORE_LOCAL?
+  }
+
+  if (Sec->Flags & SHF_EXECINSTR) {
+    Perms |= CHERI_CAP_PERMISSION_PERMIT_EXECUTE;
+  } else {
+    Perms |= CHERI_CAP_PERMISSION_PERMIT_LOAD_CAPABILITY;
+  }
+
+  return Perms;
 }
 }
 }
