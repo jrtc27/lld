@@ -2591,13 +2591,15 @@ void CheriTargetInfo<ELFT>::getSymbolMemcapBounds(const SymbolBody &S,
 
 template <class ELFT>
 uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const {
-  if (!S.isDefined()) {
+  uint64_t Base = S.getVA<ELFT>();
+  uint64_t Size = S.getSize<ELFT>();
+  if (!S.isDefined() || (Base == 0 && Size == 0)) {
     if (S.isPreemptible())
       error("undefined preemptible symbols are not supported yet: " + S.getName());
     else if (!S.symbol()->isWeak() && S.kind() != SymbolBody::DefinedSyntheticKind)
       error("undefined non-weak symbols are not supported yet: " + S.getName());
 
-    // Otherwise this is a weak symbol, so emit a NULL capability
+    // Otherwise this is a weak (or synthetic) symbol, so emit a NULL capability
     return 0;
   }
 
