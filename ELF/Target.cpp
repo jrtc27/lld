@@ -2597,11 +2597,6 @@ uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const 
     return 0;
   }
 
-  if (Sec->Type != SHT_PROGBITS) {
-    error("invalid permissions relocation for symbol " + S.getName() + " in non-SHT_PROGBITS section " + Sec->getName());
-    return 0;
-  }
-
   uint64_t Perms = 0;
   // TODO: Should this sometimes be local instead?
   Perms |= CHERI_CAP_PERMISSION_GLOBAL;
