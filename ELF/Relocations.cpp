@@ -888,12 +888,12 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
       if (Config->MipsCheriAbi) {
         In<ELFT>::CheriMct->addEntry(Body, Addend, Expr);
         AddDyn({Target->getDynRel(R_CHERI_MEMCAP), In<ELFT>::CheriMct,
-                Body.getMctOffset<ELFT>(), false, &Body, 0});
+                Body.getMctOffset<ELFT>(), false, nullptr, 0});
       }
     }
 
     if (Expr == R_MEMCAP) {
-      AddDyn({Target->getDynRel(Type), &C, Offset, false, &Body, Addend});
+      AddDyn({Target->getDynRel(Type), &C, Offset, false, nullptr, Addend});
     }
   }
 }
