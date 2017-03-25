@@ -328,7 +328,9 @@ static bool isStaticLinkTimeConstant(RelExpr E, uint32_t Type,
                      R_MIPS_GOT_OFF, R_MIPS_GOT_OFF32, R_MIPS_TLSGD,
                      R_GOT_PAGE_PC, R_GOT_PC, R_PLT_PC, R_TLSGD_PC, R_TLSGD,
                      R_PPC_PLT_OPD, R_TLSDESC_CALL, R_TLSDESC_PAGE, R_HINT,
-                     R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32>(E))
+                     R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32,
+                     R_CHERI_BASE, R_CHERI_OFFSET, R_CHERI_SIZE,
+                     R_CHERI_PERMS, R_MEMCAP>(E))
     return true;
 
   // XXX: No they're not; REL32/64/NONE is emitted to relocate the struct
