@@ -2623,7 +2623,8 @@ uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const 
 
     Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE;
     Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE_CAPABILITY;
-    // TODO: STORE_LOCAL?
+    // TODO: Needed in some places, but can this be restricted in others?
+    Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE_LOCAL;
   }
 
   if (Sec->Flags & SHF_EXECINSTR) {
