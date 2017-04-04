@@ -72,7 +72,9 @@ static bool refersToGotEntry(RelExpr Expr) {
 }
 
 static bool refersToMctEntry(RelExpr Expr) {
-  return isRelExprOneOf<R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32>(Expr);
+  return isRelExprOneOf<R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32,
+                        R_CHERI_MCTCALL_OFF11, R_CHERI_MCTCALL_OFF32,
+                        R_CHERI_MCTCALL_OFF11_OPD, R_CHERI_MCTCALL_OFF32_OPD>(Expr);
 }
 
 static bool isPreemptible(const SymbolBody &Body, uint32_t Type) {
@@ -329,8 +331,9 @@ static bool isStaticLinkTimeConstant(RelExpr E, uint32_t Type,
                      R_GOT_PAGE_PC, R_GOT_PC, R_PLT_PC, R_TLSGD_PC, R_TLSGD,
                      R_PPC_PLT_OPD, R_TLSDESC_CALL, R_TLSDESC_PAGE, R_HINT,
                      R_CHERI_MCTDATA_OFF11, R_CHERI_MCTDATA_OFF32,
-                     R_CHERI_BASE, R_CHERI_OFFSET, R_CHERI_SIZE,
-                     R_CHERI_PERMS, R_MEMCAP>(E))
+                     R_CHERI_MCTCALL_OFF11, R_CHERI_MCTCALL_OFF32,
+                     R_CHERI_MCTCALL_OFF11_OPD, R_CHERI_MCTCALL_OFF32_OPD,
+                     R_CHERI_OFFSET, R_CHERI_SIZE, R_CHERI_PERMS, R_MEMCAP>(E))
     return true;
 
   // XXX: No they're not; REL32/64/NONE is emitted to relocate the struct
@@ -416,6 +419,16 @@ static RelExpr fromPlt(RelExpr Expr) {
     return R_PPC_OPD;
   if (Expr == R_PLT)
     return R_ABS;
+  return Expr;
+}
+
+static RelExpr fromMctCall(RelExpr Expr) {
+  // We decided not to use a stub. Optimize a reference to the stub to a
+  // reference to the entry point itself.
+  if (Expr == R_CHERI_MCTCALL_OFF11)
+    return R_CHERI_MCTCALL_OFF11_OPD;
+  if (Expr == R_CHERI_MCTCALL_OFF32)
+    return R_CHERI_MCTCALL_OFF32_OPD;
   return Expr;
 }
 
@@ -545,6 +558,12 @@ static RelExpr adjustExpr(const elf::ObjectFile<ELFT> &File, SymbolBody &Body,
   if (Body.isGnuIFunc()) {
     Expr = toPlt(Expr);
   } else if (!Preemptible) {
+    // Any call to a function in the same DSO must be using the same MCT, so we
+    // can call directly to the function entry point rather than using a
+    // PLT-like stub to load $cp. Therefore, %mctcall(f) gets transformed to
+    // %mctdata(.f).
+    if (isRelExprOneOf<R_CHERI_MCTCALL_OFF11, R_CHERI_MCTCALL_OFF32>(Expr))
+      Expr = fromMctCall(Expr);
     if (needsPlt(Expr))
       Expr = fromPlt(Expr);
     if (Expr == R_GOT_PC && !isAbsoluteValue<ELFT>(Body))
@@ -774,6 +793,11 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
     if (isRelExprOneOf<R_HINT, R_TLSDESC_CALL>(Expr))
       continue;
 
+    if (Expr == R_MEMCAP) {
+      AddDyn({Target->getDynRel(Type), &C, Offset, false, nullptr, Addend});
+      continue;
+    }
+
     if (needsPlt(Expr) || refersToMctEntry(Expr) ||
         refersToGotEntry(Expr) || !isPreemptible(Body, Type)) {
       // If the relocation points to something in the file, we can process it.
@@ -888,14 +912,8 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
 
     if (refersToMctEntry(Expr)) {
       if (Config->MipsCheriAbi) {
-        In<ELFT>::CheriMct->addEntry(Body, Addend, Expr);
-        AddDyn({Target->getDynRel(R_CHERI_MEMCAP), In<ELFT>::CheriMct,
-                Body.getMctOffset<ELFT>(), false, nullptr, 0});
+        In<ELFT>::CheriMct->addEntry(Body, Expr);
       }
-    }
-
-    if (Expr == R_MEMCAP) {
-      AddDyn({Target->getDynRel(Type), &C, Offset, false, nullptr, Addend});
     }
   }
 }

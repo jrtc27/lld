@@ -275,7 +275,6 @@ template <class ELFT> void Writer<ELFT>::run() {
   if (ErrorCount)
     return;
   if (!Config->OFormatBinary) {
-    writeHeader();
     writeSections();
   } else {
     writeSectionsBinary();
@@ -358,7 +357,17 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
   // Add MIPS-specific sections.
   bool HasDynSymTab =
       !Symtab<ELFT>::X->getSharedFiles().empty() || Config->pic() ||
-      Config->ExportDynamic || In<ELFT>::Interp;
+      Config->ExportDynamic;
+  if (!HasDynSymTab && In<ELFT>::Interp) {
+    // Not actually dynamically linked, but for CheriABI we need to use the
+    // runtime linker to resolve R_CHERI_MEMCAP (maybe this could be embedded
+    // in the C startup). This is needed for things like TLS, since _DYNAMIC
+    // normally indicates that it calls into the runtime linker, but
+    // statically-linked binaries will use their internal implementations and
+    // need to perform the relevant initialisation.
+    Config->SuppressDynamicSymbol = true;
+    HasDynSymTab = true;
+  }
   if (Config->isMIPS()) {
     if (!Config->Shared && HasDynSymTab) {
       In<ELFT>::MipsRldMap = make<MipsRldMapSection<ELFT>>();
@@ -1106,7 +1115,7 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // It should be okay as no one seems to care about the type.
   // Even the author of gold doesn't remember why gold behaves that way.
   // https://sourceware.org/ml/binutils/2002-03/msg00360.html
-  if (In<ELFT>::DynSymTab)
+  if (In<ELFT>::DynSymTab && !Config->SuppressDynamicSymbol)
     addRegular("_DYNAMIC", In<ELFT>::Dynamic, 0);
 
   // Define __rel[a]_iplt_{start,end} symbols if needed.
@@ -1151,6 +1160,12 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // So far we have added sections from input object files.
   // This function adds linker-created Out<ELFT>::* sections.
   addPredefinedSections();
+
+  // This must be done before removing unused synthetic sections, otherwise
+  // RelaDyn will be removed if the only relocations come from CheriMct.
+  if (In<ELFT>::CheriMct)
+    In<ELFT>::CheriMct->addRelocs();
+
   removeUnusedSyntheticSections<ELFT>(OutputSections);
 
   sortSections();
@@ -1612,9 +1627,24 @@ template <class ELFT> void Writer<ELFT>::setPhdrs() {
 template <class ELFT> typename ELFT::uint Writer<ELFT>::getEntryAddr() {
   // Case 1, 2 or 3. As a special case, if the symbol is actually
   // a number, we'll use that number as an address.
-  if (SymbolBody *B = Symtab<ELFT>::X->find(Config->Entry))
-    return B->getVA<ELFT>();
   uint64_t Addr;
+  if (SymbolBody *B = Symtab<ELFT>::X->find(Config->Entry)) {
+    Addr = B->getVA<ELFT>();
+    // For CHERI, the entry point should be the function entry point, but the
+    // symbol may point to the descriptor. If so, read the real entry point.
+    if (Config->MipsCheriAbi && Out<ELFT>::Opd) {
+      const endianness E = ELFT::TargetEndianness;
+      uint64_t OpdStart = Out<ELFT>::Opd->Addr;
+      uint64_t OpdEnd = OpdStart + Out<ELFT>::Opd->Size;
+      bool InOpd = OpdStart <= Addr && Addr < OpdEnd;
+      // If so, the real entry point is Memcap.Base+Memcap.Offset
+      // TODO: CHERI-128
+      if (InOpd)
+        Addr = read64<E>(&Out<ELFT>::OpdBuf[Addr - OpdStart]) +
+               read64<E>(&Out<ELFT>::OpdBuf[Addr - OpdStart + 8]);
+    }
+    return Addr;
+  }
   if (!Config->Entry.getAsInteger(0, Addr))
     return Addr;
 
@@ -1822,11 +1852,25 @@ template <class ELFT> void Writer<ELFT>::writeSections() {
 
   // PPC64 needs to process relocations in the .opd section
   // before processing relocations in code-containing sections.
+  //
+  // CEHERI needs to process relocations in the .opd section
+  // before processing relocations in the MCT, as well as
+  // potentially the entry point field in the header.
+  //
+  // This is because branches to the function descriptor get
+  // turned into branches to the function entry point, by using
+  // special RelExpr's whose VA is obtained by dereferencing the
+  // function descriptor. The name and visibility of the
+  // function entry point symbol cannot be guaranteed, otherwise
+  // we might be able to change the SymbolBody used for the
+  // relocation to point to the entry point directly.
   Out<ELFT>::Opd = findSection(".opd");
   if (Out<ELFT>::Opd) {
     Out<ELFT>::OpdBuf = Buf + Out<ELFT>::Opd->Offset;
     Out<ELFT>::Opd->writeTo(Buf + Out<ELFT>::Opd->Offset);
   }
+
+  writeHeader();
 
   OutputSectionBase *EhFrameHdr =
       In<ELFT>::EhFrameHdr ? In<ELFT>::EhFrameHdr->OutSec : nullptr;

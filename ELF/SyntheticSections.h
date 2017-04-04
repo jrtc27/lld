@@ -225,38 +225,25 @@ class CheriMctSection final : public SyntheticSection<ELFT> {
   typedef typename ELFT::uint uintX_t;
 
 public:
-  // Data capabilities accessed as:
-  //   CLC cd, rt, offset(cb)
-  // rt may be $zero; offset my be 0
-  //
-  // Procedure capabilities more interesting:
-  //   MOV $temp, offset
-  //   CIncOFfset $c, $mctp, $temp
-  //   CJR $c <or> CJALR $c, $csaved
-  //
-  // TODO: $mctp needs to be swapped out when crossing shared object boundaries
-  // Propopsed solution: MemCapDirectory
-  //                     MemCapTable[0] = MemCapDirectory
-  //
-  // Currently a simple layout; no local or page optimisations.
   CheriMctSection();
   void writeTo(uint8_t *Buf) override;
   size_t getSize() const override { return Size; }
   void finalize() override;
   bool empty() const override;
-  void addEntry(SymbolBody &Sym, uintX_t Addend, RelExpr Expr);
+  void addRelocs();
+  void addEntry(SymbolBody &Sym, RelExpr Expr);
   //bool addDynTlsEntry(SymbolBody &Sym); TODO: TLS could get interesting?
   //bool addTlsIndex(); TODO: TLS could get interesting?
-  uintX_t getPageEntryOffset(const SymbolBody &B, uintX_t Addend) const;
-  uintX_t getBodyEntryOffset(const SymbolBody &B, uintX_t Addend) const;
+  uintX_t getBodyEntryOffset(const SymbolBody &B, RelExpr Expr) const;
   uintX_t getGlobalDynOffset(const SymbolBody &B) const;
   unsigned getLocalEntriesNum() const;
   unsigned getCp() const;
 
+  enum EntryKind { DataEntry, CallEntry, CallOpdEntry };
+
 private:
-  typedef std::pair<const SymbolBody *, uintX_t> MctEntry;
+  typedef std::pair<SymbolBody *, EntryKind> MctEntry;
   typedef std::vector<MctEntry> MctEntries;
-  llvm::DenseMap<MctEntry, size_t> EntryIndexMap;
   MctEntries LocalEntries;
   MctEntries LocalEntries32;
   MctEntries GlobalEntries;

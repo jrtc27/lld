@@ -409,11 +409,12 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
            In<ELFT>::MipsGot->getTlsIndexOff() - In<ELFT>::MipsGot->getGp();
   case R_CHERI_MCTDATA_OFF11:
   case R_CHERI_MCTDATA_OFF32:
-    // In case of CHERI if an MCT relocation has non-zero addend this addend
-    // should be applied to the MCT entry content not to the MCT entry offset.
-    // That is why we use separate expression type.
+  case R_CHERI_MCTCALL_OFF11:
+  case R_CHERI_MCTCALL_OFF32:
+  case R_CHERI_MCTCALL_OFF11_OPD:
+  case R_CHERI_MCTCALL_OFF32_OPD:
     return In<ELFT>::CheriMct->getVA() +
-           In<ELFT>::CheriMct->getBodyEntryOffset(Body, A) -
+           In<ELFT>::CheriMct->getBodyEntryOffset(Body, Expr) -
            In<ELFT>::CheriMct->getCp();
   case R_MEMCAP:
     return 0;
@@ -435,6 +436,44 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
   }
   case R_CHERI_PERMS:
     return Target->getSymbolMemcapPerms(Body);
+  case R_CHERI_BASE_OPD:
+  case R_CHERI_OFFSET_OPD:
+  case R_CHERI_SIZE_OPD:
+  case R_CHERI_PERMS_OPD: {
+    const endianness E = ELFT::TargetEndianness;
+    uint64_t SymVA = Body.getVA<ELFT>(A);
+    if (!SymVA)
+      return 0;
+    uint64_t Offset;
+    switch (Expr) {
+      case R_CHERI_BASE_OPD:
+        Offset = 0;
+        break;
+      case R_CHERI_OFFSET_OPD:
+        Offset = 8;
+        break;
+      case R_CHERI_SIZE_OPD:
+        Offset = 16;
+        break;
+      case R_CHERI_PERMS_OPD:
+        Offset = 24;
+        break;
+      default:
+        llvm_unreachable("Unhandled expression");
+    }
+    if (Out<ELFT>::Opd) {
+      // If this is a local call, and we currently have the address of a
+      // function-descriptor, get the underlying capability field instead.
+      uint64_t OpdStart = Out<ELFT>::Opd->Addr;
+      uint64_t OpdEnd = OpdStart + Out<ELFT>::Opd->Size;
+      bool InOpd = OpdStart <= SymVA && SymVA < OpdEnd;
+      if (InOpd)
+        return read64<E>(&Out<ELFT>::OpdBuf[SymVA - OpdStart + Offset]);
+      error("Call to symbol " + Body.getName() + " which is not in .opd");
+      return 0;
+    }
+    llvm_unreachable("No .opd section to look in");
+  }
   case R_PPC_OPD: {
     uint64_t SymVA = Body.getVA<ELFT>(A);
     // If we have an undefined weak symbol, we might get here with a symbol

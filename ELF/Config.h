@@ -134,6 +134,7 @@ struct Configuration {
   bool SingleRoRx;
   bool Shared;
   bool Static = false;
+  bool SuppressDynamicSymbol = false;
   bool SysvHash = true;
   bool Target1Rel;
   bool Threads;

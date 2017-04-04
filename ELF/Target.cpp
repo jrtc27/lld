@@ -262,6 +262,8 @@ template <class ELFT> class CheriTargetInfo final : public MipsTargetInfoBase<EL
 public:
   CheriTargetInfo() : MipsTargetInfoBase<ELFT>() {}
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
+  bool isPicRel(uint32_t Type) const override;
+  uint32_t getDynRel(uint32_t Type) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   void getSymbolMemcapBounds(const SymbolBody &S, uint64_t &Base, uint64_t &Offset,
                              uint64_t &Size) const override;
@@ -2184,8 +2186,6 @@ template <class ELFT> bool MipsTargetInfoBase<ELFT>::isPicRel(uint32_t Type) con
 
 template <class ELFT>
 uint32_t MipsTargetInfoBase<ELFT>::getDynRel(uint32_t Type) const {
-  if (Type == R_CHERI_MEMCAP)
-    return Type;
   return RelativeRel;
 }
 
@@ -2496,6 +2496,11 @@ RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
   case R_CHERI_MCTDATA_HI16:
   case R_CHERI_MCTDATA_LO16:
     return R_CHERI_MCTDATA_OFF32;
+  case R_CHERI_MCTCALL11:
+    return R_CHERI_MCTCALL_OFF11;
+  case R_CHERI_MCTCALL_HI16:
+  case R_CHERI_MCTCALL_LO16:
+    return R_CHERI_MCTCALL_OFF32;
   case R_CHERI_BASE64:
     return R_CHERI_BASE;
   case R_CHERI_OFFSET64:
@@ -2506,6 +2511,32 @@ RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
     return R_CHERI_PERMS;
   case R_CHERI_MEMCAP:
     return R_MEMCAP;
+  }
+}
+
+template <class ELFT> bool CheriTargetInfo<ELFT>::isPicRel(uint32_t Type) const {
+  switch (Type) {
+  case R_CHERI_BASE64:
+  case R_CHERI_OFFSET64:
+  case R_CHERI_SIZE64:
+  case R_CHERI_PERMS64:
+    return true;
+  default:
+    return MipsTargetInfoBase<ELFT>::isPicRel(Type);
+  }
+}
+
+template <class ELFT>
+uint32_t CheriTargetInfo<ELFT>::getDynRel(uint32_t Type) const {
+  switch (Type) {
+  case R_CHERI_MEMCAP:
+  case R_CHERI_BASE64:
+  case R_CHERI_OFFSET64:
+  case R_CHERI_SIZE64:
+  case R_CHERI_PERMS64:
+    return Type;
+  default:
+    return MipsTargetInfoBase<ELFT>::getDynRel(Type);
   }
 }
 
@@ -2523,14 +2554,15 @@ void CheriTargetInfo<ELFT>::relocateOne(uint8_t *Loc, uint32_t Type,
     MipsTargetInfoBase<ELFT>::relocateOne(LocOrig, TypeOrig, ValOrig);
     break;
   case R_CHERI_MCTDATA11:
-    //warn("MCTDATA11 val: " + Val);
+  case R_CHERI_MCTCALL11:
     writeCheriMct11<E>(Loc, Val);
     break;
   case R_CHERI_MCTDATA_HI16:
-    //warn("MCTDATA_HI16 val: " + Val);
+  case R_CHERI_MCTCALL_HI16:
     writeMipsHi16<E>(Loc, Val);
     break;
   case R_CHERI_MCTDATA_LO16:
+  case R_CHERI_MCTCALL_LO16:
     //warn("MCTDATA_LO16 val: " + Val);
     writeMipsLo16<E>(Loc, Val);
     break;

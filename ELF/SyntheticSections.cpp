@@ -730,25 +730,87 @@ CheriMctSection<ELFT>::CheriMctSection()
                              SHT_PROGBITS, 32, ".cheri.mct") {} // TODO: Cheri128?
 
 template <class ELFT>
-void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, uintX_t Addend,
-                                     RelExpr Expr) {
-  // TODO:
-  auto AddEntry = [&](SymbolBody &S, uintX_t A, MctEntries &Items) {
-    if (S.isInMct() && !A)
-      return;
-    size_t NewIndex = Items.size();
-    if (!EntryIndexMap.insert({{&S, A}, NewIndex}).second)
-      return;
-    Items.emplace_back(&S, A);
-    if (!A)
-      S.MctIndex = NewIndex;
-  };
-  if (Expr == R_CHERI_MCTDATA11) {
-    AddEntry(Sym, Addend, LocalEntries);
-  } else {
-    AddEntry(Sym, Addend, LocalEntries32);
-    Sym.Is32BitCheriMct = true;
+static typename CheriMctSection<ELFT>::EntryKind MctKindForExpr(RelExpr Expr) {
+  switch (Expr) {
+    case R_CHERI_MCTDATA_OFF11:
+    case R_CHERI_MCTDATA_OFF32:
+      return CheriMctSection<ELFT>::DataEntry;
+    case R_CHERI_MCTCALL_OFF11:
+    case R_CHERI_MCTCALL_OFF32:
+      return CheriMctSection<ELFT>::CallEntry;
+    case R_CHERI_MCTCALL_OFF11_OPD:
+    case R_CHERI_MCTCALL_OFF32_OPD:
+      return CheriMctSection<ELFT>::CallOpdEntry;
+    default:
+      llvm_unreachable("Unknown expression");
   }
+}
+
+static bool IsSmallMctOffset(RelExpr Expr) {
+  switch (Expr) {
+    case R_CHERI_MCTDATA_OFF11:
+    case R_CHERI_MCTCALL_OFF11:
+    case R_CHERI_MCTCALL_OFF11_OPD:
+      return true;
+    case R_CHERI_MCTDATA_OFF32:
+    case R_CHERI_MCTCALL_OFF32:
+    case R_CHERI_MCTCALL_OFF32_OPD:
+      return false;
+    default:
+      llvm_unreachable("Unknown expression");
+  }
+}
+
+template <class ELFT>
+void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, RelExpr Expr) {
+  EntryKind Kind = MctKindForExpr<ELFT>(Expr);
+  bool SmallOffset = IsSmallMctOffset(Expr);
+  unsigned SymbolBody::*IndexField;
+  bool (SymbolBody::*GetIs32BitField)() const;
+  void (SymbolBody::*SetIs32BitField)(bool);
+  bool (SymbolBody::*IsInTableFunc)() const;
+  switch (Kind) {
+  case DataEntry:
+    IndexField = &SymbolBody::MctIndex;
+    GetIs32BitField = &SymbolBody::is32BitCheriMct;
+    SetIs32BitField = &SymbolBody::setIs32BitCheriMct;
+    IsInTableFunc = &SymbolBody::isInMct;
+    break;
+  case CallEntry:
+    llvm_unreachable("Not yet implemented");
+    break;
+  case CallOpdEntry:
+    IndexField = &SymbolBody::OpdMctIndex;
+    GetIs32BitField = &SymbolBody::is32BitCheriOpdMct;
+    SetIs32BitField = &SymbolBody::setIs32BitCheriOpdMct;
+    IsInTableFunc = &SymbolBody::isOpdInMct;
+    break;
+  }
+
+  if ((Sym.*IsInTableFunc)()) {
+    if (SmallOffset && (Sym.*GetIs32BitField)()) {
+      // Moving into LocalEntries, so remove from LocalEntries32
+      // Need to update MctIndex of everything after this entry
+      std::for_each(std::begin(LocalEntries32)+(Sym.*IndexField)+1,
+                    std::end(LocalEntries32),
+                    [=](MctEntry &SK) { SK.first->*IndexField -= 1; });
+      Sym.*IndexField = -1;
+      (Sym.*SetIs32BitField)(false);
+    } else
+      return;
+  }
+
+  MctEntries *Items;
+  if (SmallOffset)
+    Items = &LocalEntries;
+  else {
+    Items = &LocalEntries32;
+    (Sym.*SetIs32BitField)(true);
+  }
+
+  size_t NewIndex = Items->size();
+  Items->emplace_back(&Sym, Kind);
+  Sym.*IndexField = NewIndex;
 }
 
 //template <class ELFT> bool CheriMctSection<ELFT>::addDynTlsEntry(SymbolBody &Sym) {
@@ -761,35 +823,32 @@ void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, uintX_t Addend,
 
 template <class ELFT>
 typename CheriMctSection<ELFT>::uintX_t
-CheriMctSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
-                                          uintX_t Addend) const {
-  //const OutputSectionBase *OutSec =
-  //    cast<DefinedRegular<ELFT>>(&B)->Section->OutSec;
-  //uintX_t SecAddr = getMipsPageAddr(OutSec->Addr);
-  //uintX_t SymAddr = getMipsPageAddr(B.getVA<ELFT>(Addend));
-  //uintX_t Index = PageIndexMap.lookup(OutSec) + (SymAddr - SecAddr) / 0xffff;
-  //assert(Index < PageEntriesNum);
-  //return (HeaderEntriesNum + Index) * sizeof(uintX_t);
-  llvm_unreachable("CheriMctSection::getPageEntryOffset");
-  return 0; // TODO
-}
-
-template <class ELFT>
-typename CheriMctSection<ELFT>::uintX_t
-CheriMctSection<ELFT>::getBodyEntryOffset(const SymbolBody &B,
-                                          uintX_t Addend) const {
-  uintX_t Index = 0;
-  // Calculate offset of the MCT entries block: local, local32.
-  if (B.Is32BitCheriMct)
-    Index += LocalEntries.size();
-  // Calculate offset of the MCT entry in the block.
-  if (B.isInMct())
-    Index += B.MctIndex;
-  else {
-    auto It = EntryIndexMap.find({&B, Addend});
-    assert(It != EntryIndexMap.end());
-    Index += It->second;
+CheriMctSection<ELFT>::getBodyEntryOffset(const SymbolBody &B, RelExpr Expr) const {
+  EntryKind Kind = MctKindForExpr<ELFT>(Expr);
+  unsigned SymbolBody::*IndexField;
+  bool (SymbolBody::*GetIs32BitField)() const;
+  bool (SymbolBody::*IsInTableFunc)() const;
+  switch (Kind) {
+  case DataEntry:
+    IndexField = &SymbolBody::MctIndex;
+    GetIs32BitField = &SymbolBody::is32BitCheriMct;
+    IsInTableFunc = &SymbolBody::isInMct;
+    break;
+  case CallEntry:
+    llvm_unreachable("Not yet implemented");
+    break;
+  case CallOpdEntry:
+    IndexField = &SymbolBody::OpdMctIndex;
+    GetIs32BitField = &SymbolBody::is32BitCheriOpdMct;
+    IsInTableFunc = &SymbolBody::isOpdInMct;
+    break;
   }
+  assert((B.*IsInTableFunc)());
+  uintX_t Index = B.*IndexField;
+  // Index is only within the subsection, so 32-bit-offset indices need to be
+  // incremented to skip over the local entries
+  if ((B.*GetIs32BitField)())
+    Index += LocalEntries.size();
   return Index * 32; // TODO: Cheri128?
 }
 
@@ -817,19 +876,84 @@ unsigned CheriMctSection<ELFT>::getLocalEntriesNum() const {
   return LocalEntries.size() + LocalEntries32.size();
 }
 
+// True if non-preemptable symbol always has the same value regardless of where
+// the DSO is loaded.
+template <class ELFT> static bool isAbsolute(const SymbolBody &Body) {
+  if (Body.isUndefined())
+    return !Body.isLocal() && Body.symbol()->isWeak();
+  if (const auto *DR = dyn_cast<DefinedRegular<ELFT>>(&Body))
+    return DR->Section == nullptr; // Absolute symbol.
+  return false;
+}
+
 template <class ELFT> void CheriMctSection<ELFT>::finalize() {
-  //PageEntriesNum = 0;
-  //for (std::pair<const OutputSectionBase *, size_t> &P : PageIndexMap) {
-  //  // For each output section referenced by GOT page relocations calculate
-  //  // and save into PageIndexMap an upper bound of MIPS GOT entries required
-  //  // to store page addresses of local symbols. We assume the worst case -
-  //  // each 64kb page of the output section has at least one GOT relocation
-  //  // against it. And take in account the case when the section intersects
-  //  // page boundaries.
-  //  P.second = PageEntriesNum;
-  //  PageEntriesNum += getMipsPageCount(P.first->Size);
-  //}
-  Size = (getLocalEntriesNum() + GlobalEntries.size()) * 32; // TODO: Cheri128?
+  // TODO: Cheri128?
+  Size = (getLocalEntriesNum() + GlobalEntries.size()) * 32;
+}
+
+template <class ELFT> void CheriMctSection<ELFT>::addRelocs() {
+  auto AddDyn = [=](const DynamicReloc<ELFT> &Reloc) {
+    In<ELFT>::RelaDyn->addReloc(Reloc);
+  };
+
+  uintX_t Off = 0;
+  // TODO: Cheri128?
+  auto AddRelocs = [=, &Off](const MctEntry &SK) {
+    SymbolBody &Body = *SK.first;
+    const EntryKind Kind = SK.second;
+
+    bool Preemptible = Body.isPreemptible();
+    bool Constant =
+        !Preemptible && !(Config->pic() && !isAbsolute<ELFT>(Body));
+    uint32_t DynType = Target->RelativeRel;
+
+    if (!Preemptible) {
+      // We can fill in the MCT entries, so add to our own section's
+      // relocations for when we come to be written out.
+      switch (Kind) {
+      case DataEntry:
+        this->Relocations.push_back({R_CHERI_BASE,   R_CHERI_BASE64,   Off   , 0, &Body});
+        this->Relocations.push_back({R_CHERI_OFFSET, R_CHERI_OFFSET64, Off+ 8, 0, &Body});
+        this->Relocations.push_back({R_CHERI_SIZE,   R_CHERI_SIZE64,   Off+16, 0, &Body});
+        this->Relocations.push_back({R_CHERI_PERMS,  R_CHERI_PERMS64,  Off+24, 0, &Body});
+        break;
+      case CallOpdEntry:
+        this->Relocations.push_back({R_CHERI_BASE_OPD,   R_CHERI_BASE64,   Off   , 0, &Body});
+        this->Relocations.push_back({R_CHERI_OFFSET_OPD, R_CHERI_OFFSET64, Off+ 8, 0, &Body});
+        this->Relocations.push_back({R_CHERI_SIZE_OPD,   R_CHERI_SIZE64,   Off+16, 0, &Body});
+        this->Relocations.push_back({R_CHERI_PERMS_OPD,  R_CHERI_PERMS64,  Off+24, 0, &Body});
+        break;
+      default:
+        llvm_unreachable("Saw bad entry kind for non-preemptible symbol");
+      }
+      if (!Constant) {
+        // Base address can change; emit a relative relocation to adjust it.
+        AddDyn({DynType, this, Off, false, nullptr, 0});
+      }
+    } else {
+      switch (Kind) {
+      case DataEntry:
+        AddDyn({R_CHERI_BASE64,   this, Off   , false, &Body, 0});
+        AddDyn({R_CHERI_OFFSET64, this, Off+ 8, false, &Body, 0});
+        AddDyn({R_CHERI_SIZE64,   this, Off+16, false, &Body, 0});
+        AddDyn({R_CHERI_PERMS64,  this, Off+24, false, &Body, 0});
+        break;
+      case CallEntry:
+        // TODO: Need entry for the capability for the stub as well as for the
+        //       intended external target.
+        llvm_unreachable("Preemptible calls not yet implemented");
+        break;
+      default:
+        llvm_unreachable("Saw bad entry kind for non-preemptible symbol");
+      }
+    }
+    // Finally, we always need to tell the runtime linker this is a memcap
+    AddDyn({Target->getDynRel(R_CHERI_MEMCAP), this, Off, false, nullptr, 0});
+    Off += 32;
+  };
+  std::for_each(std::begin(LocalEntries), std::end(LocalEntries), AddRelocs);
+  std::for_each(std::begin(LocalEntries32), std::end(LocalEntries32), AddRelocs);
+  std::for_each(std::begin(GlobalEntries), std::end(GlobalEntries), AddRelocs);
 }
 
 template <class ELFT> bool CheriMctSection<ELFT>::empty() const {
@@ -841,22 +965,7 @@ template <class ELFT> unsigned CheriMctSection<ELFT>::getCp() const {
 }
 
 template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
-  auto AddEntry = [&](const MctEntry &SA) {
-    uint8_t *Entry = Buf;
-    Buf += 32; // TODO: Cheri128?
-    const SymbolBody &Body = *SA.first;
-    uint64_t Base, Offset, Size;
-    Target->getSymbolMemcapBounds(Body, Base, Offset, Size);
-    uint64_t Perms = Target->getSymbolMemcapPerms(Body);
-    writeUint<ELFT>(Entry     , Base);
-    writeUint<ELFT>(Entry +  8, Offset);
-    writeUint<ELFT>(Entry + 16, Size);
-    writeUint<ELFT>(Entry + 24, Perms);
-  };
-  std::for_each(std::begin(LocalEntries), std::end(LocalEntries), AddEntry);
-  std::for_each(std::begin(LocalEntries32), std::end(LocalEntries32), AddEntry);
-  std::for_each(std::begin(GlobalEntries), std::end(GlobalEntries), AddEntry);
-  // TODO: TLS
+  this->relocate(Buf, Buf + Size);
 }
 
 template <class ELFT>
@@ -1161,6 +1270,15 @@ void RelocationSection<ELFT>::addReloc(const DynamicReloc<ELFT> &Reloc) {
 
 template <class ELFT, class RelTy>
 static bool compRelocations(const RelTy &A, const RelTy &B) {
+  // R_CHERI_MEMCAP relocations must come after all relocations for the memcap
+  // itself; easiest to put them all last.
+  if (Config->isMIPS() && Config->MipsCheriAbi) {
+    bool AIsMemcap = A.getType(Config->Mips64EL) == R_CHERI_MEMCAP;
+    bool BIsMemcap = B.getType(Config->Mips64EL) == R_CHERI_MEMCAP;
+    if (AIsMemcap != BIsMemcap)
+      return BIsMemcap;
+  }
+
   bool AIsRel = A.getType(Config->Mips64EL) == Target->RelativeRel;
   bool BIsRel = B.getType(Config->Mips64EL) == Target->RelativeRel;
   if (AIsRel != BIsRel)

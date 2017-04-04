@@ -77,6 +77,7 @@ public:
   bool isInGot() const { return GotIndex != -1U; }
   bool isInPlt() const { return PltIndex != -1U; }
   bool isInMct() const { return MctIndex != -1U; }
+  bool isOpdInMct() const { return OpdMctIndex != -1U; }
 
   template <class ELFT> typename ELFT::uint getVA(int64_t Addend = 0) const;
 
@@ -98,6 +99,7 @@ public:
   uint32_t GotPltIndex = -1;
   uint32_t PltIndex = -1;
   uint32_t MctIndex = -1;
+  uint32_t OpdMctIndex = -1;
   uint32_t GlobalDynIndex = -1;
 
 protected:
@@ -133,6 +135,9 @@ public:
   // True if this symbol is referenced by 32-bit MCT relocations.
   unsigned Is32BitCheriMct : 1;
 
+  // True if this symbol is referenced by 32-bit MCT OPD relocations.
+  unsigned Is32BitCheriOpdMct : 1;
+
   // The following fields have the same meaning as the ELF symbol attributes.
   uint8_t Type;    // symbol type
   uint8_t StOther; // st_other field value
@@ -150,6 +155,12 @@ public:
   bool isGnuIFunc() const { return Type == llvm::ELF::STT_GNU_IFUNC; }
   bool isObject() const { return Type == llvm::ELF::STT_OBJECT; }
   bool isFile() const { return Type == llvm::ELF::STT_FILE; }
+
+  bool is32BitCheriMct() const { return Is32BitCheriMct; }
+  void setIs32BitCheriMct(bool B) { Is32BitCheriMct = B; }
+
+  bool is32BitCheriOpdMct() const { return Is32BitCheriOpdMct; }
+  void setIs32BitCheriOpdMct(bool B) { Is32BitCheriOpdMct = B; }
 
 protected:
   StringRefZ Name;
