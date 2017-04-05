@@ -132,10 +132,14 @@ StringRef elf::getOutputSectionName(StringRef Name) {
 }
 
 template <class ELFT> static bool needsInterpSection() {
-  return !Config->DynamicLinker.empty();
-  /*return !Symtab<ELFT>::X->getSharedFiles().empty() &&
-         !Config->DynamicLinker.empty() &&
-         !Script<ELFT>::X->ignoreInterpSection();*/
+  if (!Config->DynamicLinker.empty()) {
+    if (Config->MipsCheriAbi)
+      return !Config->Relocatable;
+    else
+      return !Symtab<ELFT>::X->getSharedFiles().empty() &&
+           !Script<ELFT>::X->ignoreInterpSection();
+  }
+  return false;
 }
 
 template <class ELFT> void elf::writeResult() { Writer<ELFT>().run(); }
