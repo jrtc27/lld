@@ -717,7 +717,8 @@ template <class ELFT> void MipsGotSection<ELFT>::writeTo(uint8_t *Buf) {
     }
     if (B->GlobalDynIndex != -1U) {
       uint8_t *Entry = Buf + B->GlobalDynIndex * sizeof(uintX_t);
-      writeUint<ELFT>(Entry, 1);
+      if (!Config->pic())
+        writeUint<ELFT>(Entry, 1);
       Entry += sizeof(uintX_t);
       writeUint<ELFT>(Entry, VA - 0x8000);
     }

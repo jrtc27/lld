@@ -126,7 +126,7 @@ static unsigned handleNoRelaxTlsRelocation(GOT *Got, uint32_t Type,
   }
   if (Target->isTlsGlobalDynamicRel(Type)) {
     if (Got->addDynTlsEntry(Body) &&
-        (Body.isPreemptible() || Config->EMachine == EM_ARM)) {
+        (Body.isPreemptible() || Config->pic() || Config->EMachine == EM_ARM)) {
       uintX_t Off = Got->getGlobalDynOffset(Body);
       addModuleReloc(Body, Got, Off, false);
       if (Body.isPreemptible())
