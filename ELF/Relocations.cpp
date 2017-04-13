@@ -828,6 +828,8 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
         error(C.getLocation(Offset) + ": relocation " + toString(Type) +
               " cannot be used against shared object; recompile with -fPIC.");
       AddDyn({Target->getDynRel(Type), &C, Offset, false, &Body, Addend});
+      if (!RelTy::IsRela || !Config->Rela)
+        C.Relocations.push_back({Expr, Type, Offset, Addend, &Body});
 
       // MIPS ABI turns using of GOT and dynamic relocations inside out.
       // While regular ABI uses dynamic relocations to fill up GOT entries
