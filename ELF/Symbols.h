@@ -78,6 +78,8 @@ public:
   bool isInPlt() const { return PltIndex != -1U; }
   bool isInMct() const { return MctIndex != -1U; }
   bool isOpdInMct() const { return OpdMctIndex != -1U; }
+  bool isPltInMct() const { return PltMctIndex != -1U; }
+  bool isInCheriPlt() const { return CheriPltIndex != -1U; }
 
   template <class ELFT> typename ELFT::uint getVA(int64_t Addend = 0) const;
 
@@ -100,6 +102,8 @@ public:
   uint32_t PltIndex = -1;
   uint32_t MctIndex = -1;
   uint32_t OpdMctIndex = -1;
+  uint32_t PltMctIndex = -1;
+  uint32_t CheriPltIndex = -1;
   uint32_t GlobalDynIndex = -1;
 
 protected:
@@ -132,11 +136,18 @@ public:
   // True if this symbol is in the Igot sub-section of the .got.plt or .got.
   unsigned IsInIgot : 1;
 
-  // True if this symbol is referenced by 32-bit MCT relocations.
+  // True if this symbol is referenced by 32-bit MCT data relocations.
   unsigned Is32BitCheriMct : 1;
 
   // True if this symbol is referenced by 32-bit MCT OPD relocations.
   unsigned Is32BitCheriOpdMct : 1;
+
+  // True if this symbol is referenced by only-32-bit MCT call relocations.
+  unsigned Is32BitCheriPltMct : 1;
+
+  // True if this symbol's MCT entry is lazy (ie a function descriptor which is
+  // only referenced by a CHERI PLT stub).
+  unsigned IsLazyCheriMct : 1;
 
   // The following fields have the same meaning as the ELF symbol attributes.
   uint8_t Type;    // symbol type
@@ -161,6 +172,9 @@ public:
 
   bool is32BitCheriOpdMct() const { return Is32BitCheriOpdMct; }
   void setIs32BitCheriOpdMct(bool B) { Is32BitCheriOpdMct = B; }
+
+  bool is32BitCheriPltMct() const { return Is32BitCheriPltMct; }
+  void setIs32BitCheriPltMct(bool B) { Is32BitCheriPltMct = B; }
 
 protected:
   StringRefZ Name;

@@ -141,8 +141,9 @@ SymbolBody::SymbolBody(Kind K, StringRefZ Name, bool IsLocal, uint8_t StOther,
                        uint8_t Type)
     : SymbolKind(K), NeedsCopy(false), NeedsPltAddr(false), IsLocal(IsLocal),
       IsInGlobalMipsGot(false), Is32BitMipsGot(false), IsInIplt(false),
-      IsInIgot(false), Is32BitCheriMct(false), Type(Type), StOther(StOther),
-      Name(Name) {}
+      IsInIgot(false), Is32BitCheriMct(false), Is32BitCheriOpdMct(false),
+      Is32BitCheriPltMct(false), IsLazyCheriMct(false), Type(Type),
+      StOther(StOther), Name(Name) {}
 
 // Returns true if a symbol can be replaced at load-time by a symbol
 // with the same name defined in other ELF executable or DSO.

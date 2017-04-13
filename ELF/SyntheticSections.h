@@ -225,6 +225,8 @@ class CheriMctSection final : public SyntheticSection<ELFT> {
   typedef typename ELFT::uint uintX_t;
 
 public:
+  enum EntryKind { DataEntry, CallEntry, CallOpdEntry };
+
   CheriMctSection();
   void writeTo(uint8_t *Buf) override;
   size_t getSize() const override { return Size; }
@@ -235,13 +237,17 @@ public:
   //bool addDynTlsEntry(SymbolBody &Sym); TODO: TLS could get interesting?
   //bool addTlsIndex(); TODO: TLS could get interesting?
   uintX_t getBodyEntryOffset(const SymbolBody &B, RelExpr Expr) const;
+  uintX_t getBodyEntryOffset(const SymbolBody &B, EntryKind Kind) const;
   uintX_t getGlobalDynOffset(const SymbolBody &B) const;
   unsigned getLocalEntriesNum() const;
   unsigned getCp() const;
 
-  enum EntryKind { DataEntry, CallEntry, CallOpdEntry };
-
 private:
+  void addEntry(SymbolBody &Sym, EntryKind Kind, bool SmallOffset, bool IsLazy);
+  void symbolMembersForKind(EntryKind Kind, unsigned SymbolBody::**IndexField,
+                            bool (SymbolBody::**GetIs32BitField)() const,
+                            void (SymbolBody::**SetIs32BitField)(bool),
+                            bool (SymbolBody::**IsInTableFunc)() const) const;
   typedef std::pair<SymbolBody *, EntryKind> MctEntry;
   typedef std::vector<MctEntry> MctEntries;
   MctEntries LocalEntries;
@@ -249,6 +255,26 @@ private:
   MctEntries GlobalEntries;
 
   uintX_t Size = 0;
+};
+
+template <class ELFT>
+class CheriPltSection : public SyntheticSection<ELFT> {
+public:
+  CheriPltSection(size_t HeaderSize);
+  void writeTo(uint8_t *Buf) override;
+  size_t getSize() const override;
+  void addEntry(SymbolBody &Sym);
+  bool empty() const override { return Entries.empty(); }
+  void addSymbols();
+
+private:
+  //void writeHeader(uint8_t *Buf){};
+  //void addHeaderSymbols(){};
+  unsigned getPltRelocOff() const;
+  std::vector<std::pair<const SymbolBody *, unsigned>> Entries;
+  // The CheriPlt HeaderSize is always non-zero
+  // TODO: Iplt?
+  size_t HeaderSize;
 };
 
 template <class ELFT>
@@ -796,6 +822,7 @@ template <class ELFT> struct In {
   static GotSection<ELFT> *Got;
   static MipsGotSection<ELFT> *MipsGot;
   static CheriMctSection<ELFT> *CheriMct;
+  static CheriPltSection<ELFT> *CheriPlt;
   static GotPltSection<ELFT> *GotPlt;
   static IgotPltSection<ELFT> *IgotPlt;
   static HashTableSection<ELFT> *HashTab;
@@ -826,6 +853,7 @@ template <class ELFT> GnuHashTableSection<ELFT> *In<ELFT>::GnuHashTab;
 template <class ELFT> GotSection<ELFT> *In<ELFT>::Got;
 template <class ELFT> MipsGotSection<ELFT> *In<ELFT>::MipsGot;
 template <class ELFT> CheriMctSection<ELFT> *In<ELFT>::CheriMct;
+template <class ELFT> CheriPltSection<ELFT> *In<ELFT>::CheriPlt;
 template <class ELFT> GotPltSection<ELFT> *In<ELFT>::GotPlt;
 template <class ELFT> IgotPltSection<ELFT> *In<ELFT>::IgotPlt;
 template <class ELFT> HashTableSection<ELFT> *In<ELFT>::HashTab;

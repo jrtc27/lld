@@ -763,38 +763,75 @@ static bool IsSmallMctOffset(RelExpr Expr) {
 }
 
 template <class ELFT>
-void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, RelExpr Expr) {
-  EntryKind Kind = MctKindForExpr<ELFT>(Expr);
-  bool SmallOffset = IsSmallMctOffset(Expr);
+void CheriMctSection<ELFT>::symbolMembersForKind(EntryKind Kind,
+                                                 unsigned SymbolBody::**IndexField,
+                                                 bool (SymbolBody::**GetIs32BitField)() const,
+                                                 void (SymbolBody::**SetIs32BitField)(bool),
+                                                 bool (SymbolBody::**IsInTableFunc)() const) const {
+  switch (Kind) {
+  case DataEntry:
+    if (IndexField)
+      *IndexField = &SymbolBody::MctIndex;
+    if (GetIs32BitField)
+      *GetIs32BitField = &SymbolBody::is32BitCheriMct;
+    if (SetIs32BitField)
+      *SetIs32BitField = &SymbolBody::setIs32BitCheriMct;
+    if (IsInTableFunc)
+      *IsInTableFunc = &SymbolBody::isInMct;
+    return;
+  case CallEntry:
+    if (IndexField)
+      *IndexField = &SymbolBody::PltMctIndex;
+    if (GetIs32BitField)
+      *GetIs32BitField = &SymbolBody::is32BitCheriPltMct;
+    if (SetIs32BitField)
+      *SetIs32BitField = &SymbolBody::setIs32BitCheriPltMct;
+    if (IsInTableFunc)
+      *IsInTableFunc = &SymbolBody::isPltInMct;
+    return;
+  case CallOpdEntry:
+    if (IndexField)
+      *IndexField = &SymbolBody::OpdMctIndex;
+    if (GetIs32BitField)
+      *GetIs32BitField = &SymbolBody::is32BitCheriOpdMct;
+    if (SetIs32BitField)
+      *SetIs32BitField = &SymbolBody::setIs32BitCheriOpdMct;
+    if (IsInTableFunc)
+      *IsInTableFunc = &SymbolBody::isOpdInMct;
+    return;
+  }
+}
+
+template <class ELFT>
+void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, EntryKind Kind,
+                                     bool SmallOffset, bool IsLazy) {
   unsigned SymbolBody::*IndexField;
   bool (SymbolBody::*GetIs32BitField)() const;
   void (SymbolBody::*SetIs32BitField)(bool);
   bool (SymbolBody::*IsInTableFunc)() const;
-  switch (Kind) {
-  case DataEntry:
-    IndexField = &SymbolBody::MctIndex;
-    GetIs32BitField = &SymbolBody::is32BitCheriMct;
-    SetIs32BitField = &SymbolBody::setIs32BitCheriMct;
-    IsInTableFunc = &SymbolBody::isInMct;
-    break;
-  case CallEntry:
-    llvm_unreachable("Not yet implemented");
-    break;
-  case CallOpdEntry:
-    IndexField = &SymbolBody::OpdMctIndex;
-    GetIs32BitField = &SymbolBody::is32BitCheriOpdMct;
-    SetIs32BitField = &SymbolBody::setIs32BitCheriOpdMct;
-    IsInTableFunc = &SymbolBody::isOpdInMct;
-    break;
+  if (IsLazy) {
+    assert(Kind == DataEntry);
+    if (!Sym.isInMct())
+      Sym.IsLazyCheriMct = true;
+  } else if (Kind == DataEntry) {
+    Sym.IsLazyCheriMct = false;
   }
+  symbolMembersForKind(Kind, &IndexField, &GetIs32BitField, &SetIs32BitField,
+                       &IsInTableFunc);
 
   if ((Sym.*IsInTableFunc)()) {
     if (SmallOffset && (Sym.*GetIs32BitField)()) {
       // Moving into LocalEntries, so remove from LocalEntries32
-      // Need to update MctIndex of everything after this entry
+      // Need to update indices of everything after this entry
       std::for_each(std::begin(LocalEntries32)+(Sym.*IndexField)+1,
                     std::end(LocalEntries32),
-                    [=](MctEntry &SK) { SK.first->*IndexField -= 1; });
+                    [=](MctEntry &SK) {
+                      unsigned SymbolBody::*SIndexField;
+                      symbolMembersForKind(SK.second,
+                                           &SIndexField,
+                                           nullptr, nullptr, nullptr);
+                      SK.first->*SIndexField -= 1;
+                    });
       Sym.*IndexField = -1;
       (Sym.*SetIs32BitField)(false);
     } else
@@ -814,6 +851,15 @@ void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, RelExpr Expr) {
   Sym.*IndexField = NewIndex;
 }
 
+template <class ELFT>
+void CheriMctSection<ELFT>::addEntry(SymbolBody &Sym, RelExpr Expr) {
+  EntryKind Kind = MctKindForExpr<ELFT>(Expr);
+  bool SmallOffset = IsSmallMctOffset(Expr);
+  addEntry(Sym, Kind, SmallOffset, false);
+  if (Kind == CallEntry)
+    addEntry(Sym, DataEntry, false, true);
+}
+
 //template <class ELFT> bool CheriMctSection<ELFT>::addDynTlsEntry(SymbolBody &Sym) {
 //}
 
@@ -826,24 +872,16 @@ template <class ELFT>
 typename CheriMctSection<ELFT>::uintX_t
 CheriMctSection<ELFT>::getBodyEntryOffset(const SymbolBody &B, RelExpr Expr) const {
   EntryKind Kind = MctKindForExpr<ELFT>(Expr);
+  return getBodyEntryOffset(B, Kind);
+}
+
+template <class ELFT>
+typename CheriMctSection<ELFT>::uintX_t
+CheriMctSection<ELFT>::getBodyEntryOffset(const SymbolBody &B, EntryKind Kind) const {
   unsigned SymbolBody::*IndexField;
   bool (SymbolBody::*GetIs32BitField)() const;
   bool (SymbolBody::*IsInTableFunc)() const;
-  switch (Kind) {
-  case DataEntry:
-    IndexField = &SymbolBody::MctIndex;
-    GetIs32BitField = &SymbolBody::is32BitCheriMct;
-    IsInTableFunc = &SymbolBody::isInMct;
-    break;
-  case CallEntry:
-    llvm_unreachable("Not yet implemented");
-    break;
-  case CallOpdEntry:
-    IndexField = &SymbolBody::OpdMctIndex;
-    GetIs32BitField = &SymbolBody::is32BitCheriOpdMct;
-    IsInTableFunc = &SymbolBody::isOpdInMct;
-    break;
-  }
+  symbolMembersForKind(Kind, &IndexField, &GetIs32BitField, nullptr, &IsInTableFunc);
   assert((B.*IsInTableFunc)());
   uintX_t Index = B.*IndexField;
   // Index is only within the subsection, so 32-bit-offset indices need to be
@@ -907,6 +945,7 @@ template <class ELFT> void CheriMctSection<ELFT>::addRelocs() {
     bool Constant =
         !Preemptible && !(Config->pic() && !isAbsolute<ELFT>(Body));
     uint32_t DynType = Target->RelativeRel;
+    assert(!Body.IsLazyCheriMct || Preemptible);
 
     if (!Preemptible) {
       // We can fill in the MCT entries, so add to our own section's
@@ -934,18 +973,24 @@ template <class ELFT> void CheriMctSection<ELFT>::addRelocs() {
     } else {
       switch (Kind) {
       case DataEntry:
+        // TODO: Lazy
         AddDyn({R_CHERI_BASE64,   this, Off   , false, &Body, 0});
         AddDyn({R_CHERI_OFFSET64, this, Off+ 8, false, &Body, 0});
         AddDyn({R_CHERI_SIZE64,   this, Off+16, false, &Body, 0});
         AddDyn({R_CHERI_PERMS64,  this, Off+24, false, &Body, 0});
         break;
       case CallEntry:
-        // TODO: Need entry for the capability for the stub as well as for the
-        //       intended external target.
-        llvm_unreachable("Preemptible calls not yet implemented");
+        this->Relocations.push_back({R_CHERI_BASE_PLT,   R_CHERI_BASE64,   Off   , 0, &Body});
+        this->Relocations.push_back({R_CHERI_OFFSET_PLT, R_CHERI_OFFSET64, Off+ 8, 0, &Body});
+        this->Relocations.push_back({R_CHERI_SIZE_PLT,   R_CHERI_SIZE64,   Off+16, 0, &Body});
+        this->Relocations.push_back({R_CHERI_PERMS_PLT,  R_CHERI_PERMS64,  Off+24, 0, &Body});
+        if (Config->pic()) {
+          // Base address can change; emit a relative relocation to adjust it.
+          AddDyn({DynType, this, Off, false, nullptr, 0});
+        }
         break;
       default:
-        llvm_unreachable("Saw bad entry kind for non-preemptible symbol");
+        llvm_unreachable("Saw bad entry kind for preemptible symbol");
       }
     }
     // Finally, we always need to tell the runtime linker this is a memcap
@@ -967,6 +1012,52 @@ template <class ELFT> unsigned CheriMctSection<ELFT>::getCp() const {
 
 template <class ELFT> void CheriMctSection<ELFT>::writeTo(uint8_t *Buf) {
   this->relocate(Buf, Buf + Size);
+}
+
+template <class ELFT>
+CheriPltSection<ELFT>::CheriPltSection(size_t S)
+    : SyntheticSection<ELFT>(SHF_ALLOC | SHF_EXECINSTR, SHT_PROGBITS, 16,
+                             ".cheri.plt"),
+      HeaderSize(S) {}
+
+template <class ELFT> void CheriPltSection<ELFT>::writeTo(uint8_t *Buf) {
+  // At beginning of PLT but not the IPLT, we have code to call the dynamic
+  // linker to resolve dynsyms at runtime. Write such code.
+  if (HeaderSize != 0)
+    Target->writeCheriPltHeader(Buf);
+  else
+    llvm_unreachable("HeaderSize == 0 only allowed for CheriIplt (not supported)");
+  size_t Off = HeaderSize;
+
+  for (auto &I : Entries) {
+    const SymbolBody *B = I.first;
+    unsigned MctOffset = In<ELFT>::CheriMct->getBodyEntryOffset(*B, CheriMctSection<ELFT>::DataEntry);
+    Target->writeCheriPlt(Buf + Off, MctOffset);
+    Off += Target->CheriPltEntrySize;
+  }
+}
+
+template <class ELFT> void CheriPltSection<ELFT>::addEntry(SymbolBody &Sym) {
+  Sym.CheriPltIndex = Entries.size();
+  Entries.push_back(std::make_pair(&Sym, 0));
+}
+
+template <class ELFT> size_t CheriPltSection<ELFT>::getSize() const {
+  return HeaderSize + Entries.size() * Target->CheriPltEntrySize;
+}
+
+// Some architectures such as additional symbols in the PLT section. For
+// example ARM uses mapping symbols to aid disassembly
+template <class ELFT> void CheriPltSection<ELFT>::addSymbols() {
+  // The PLT may have symbols defined for the Header, the IPLT has no header
+  // TODO:
+  /*if (HeaderSize != 0)
+    Target->addPltHeaderSymbols(this);
+  size_t Off = HeaderSize;
+  for (size_t I = 0; I < Entries.size(); ++I) {
+    Target->addPltSymbols(this, Off);
+    Off += Target->PltEntrySize;
+  }*/
 }
 
 template <class ELFT>
@@ -2342,6 +2433,11 @@ template class elf::CheriMctSection<ELF32LE>;
 template class elf::CheriMctSection<ELF32BE>;
 template class elf::CheriMctSection<ELF64LE>;
 template class elf::CheriMctSection<ELF64BE>;
+
+template class elf::CheriPltSection<ELF32LE>;
+template class elf::CheriPltSection<ELF32BE>;
+template class elf::CheriPltSection<ELF64LE>;
+template class elf::CheriPltSection<ELF64BE>;
 
 template class elf::GotPltSection<ELF32LE>;
 template class elf::GotPltSection<ELF32BE>;

@@ -464,6 +464,8 @@ template <class ELFT> void Writer<ELFT>::createSyntheticSections() {
   if (Config->MipsCheriAbi) {
     In<ELFT>::CheriMct = make<CheriMctSection<ELFT>>();
     Symtab<ELFT>::X->Sections.push_back(In<ELFT>::CheriMct);
+    In<ELFT>::CheriPlt = make<CheriPltSection<ELFT>>(Target->CheriPltHeaderSize);
+    Symtab<ELFT>::X->Sections.push_back(In<ELFT>::CheriPlt);
   }
 
   if (Config->EhFrameHdr) {
@@ -1138,6 +1140,8 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
     In<ELFT>::Plt->addSymbols();
   if (In<ELFT>::Iplt && !In<ELFT>::Iplt->empty())
     In<ELFT>::Iplt->addSymbols();
+  if (In<ELFT>::CheriPlt && !In<ELFT>::CheriPlt->empty())
+    In<ELFT>::CheriPlt->addSymbols();
 
   // Now that we have defined all possible global symbols including linker-
   // synthesized ones. Visit all symbols to give the finishing touches.
@@ -1210,14 +1214,15 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // Dynamic section must be the last one in this list and dynamic
   // symbol table section (DynSymTab) must be the first one.
   finalizeSynthetic<ELFT>(
-      {In<ELFT>::DynSymTab, In<ELFT>::GnuHashTab, In<ELFT>::HashTab,
-       In<ELFT>::SymTab,    In<ELFT>::ShStrTab,   In<ELFT>::StrTab,
-       In<ELFT>::VerDef,    In<ELFT>::DynStrTab,  In<ELFT>::GdbIndex,
-       In<ELFT>::Got,       In<ELFT>::MipsGot,    In<ELFT>::IgotPlt,
-       In<ELFT>::GotPlt,    In<ELFT>::CheriMct,   In<ELFT>::RelaDyn,
-       In<ELFT>::RelaIplt,  In<ELFT>::RelaPlt,    In<ELFT>::Plt,
-       In<ELFT>::Iplt,      In<ELFT>::Plt,        In<ELFT>::EhFrameHdr,
-       In<ELFT>::VerSym,    In<ELFT>::VerNeed,    In<ELFT>::Dynamic});
+      {In<ELFT>::DynSymTab,  In<ELFT>::GnuHashTab, In<ELFT>::HashTab,
+       In<ELFT>::SymTab,     In<ELFT>::ShStrTab,   In<ELFT>::StrTab,
+       In<ELFT>::VerDef,     In<ELFT>::DynStrTab,  In<ELFT>::GdbIndex,
+       In<ELFT>::Got,        In<ELFT>::MipsGot,    In<ELFT>::IgotPlt,
+       In<ELFT>::GotPlt,     In<ELFT>::CheriMct,   In<ELFT>::CheriPlt,
+       In<ELFT>::RelaDyn,    In<ELFT>::RelaIplt,   In<ELFT>::RelaPlt,
+       In<ELFT>::Plt,        In<ELFT>::Iplt,       In<ELFT>::Plt,
+       In<ELFT>::EhFrameHdr, In<ELFT>::VerSym,     In<ELFT>::VerNeed,
+       In<ELFT>::Dynamic});
 }
 
 template <class ELFT> void Writer<ELFT>::addPredefinedSections() {

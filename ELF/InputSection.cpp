@@ -474,6 +474,16 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
     }
     llvm_unreachable("No .opd section to look in");
   }
+  case R_CHERI_BASE_PLT:
+    return In<ELFT>::CheriPlt->getVA() +
+           Target->CheriPltHeaderSize +
+           Body.CheriPltIndex * Target->CheriPltEntrySize;
+  case R_CHERI_OFFSET_PLT:
+    return 0;
+  case R_CHERI_SIZE_PLT:
+    return Target->CheriPltEntrySize;
+  case R_CHERI_PERMS_PLT:
+    return Target->getSectionMemcapPerms(*In<ELFT>::CheriPlt->OutSec);
   case R_PPC_OPD: {
     uint64_t SymVA = Body.getVA<ELFT>(A);
     // If we have an undefined weak symbol, we might get here with a symbol

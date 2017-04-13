@@ -19,6 +19,7 @@
 namespace lld {
 namespace elf {
 class InputFile;
+class OutputSectionBase;
 class SymbolBody;
 
 class TargetInfo {
@@ -37,12 +38,14 @@ public:
   // to call the dynamic linker to resolve PLT entries the first time
   // they are called. This function writes that code.
   virtual void writePltHeader(uint8_t *Buf) const {}
+  virtual void writeCheriPltHeader(uint8_t *Buf) const {}
 
   virtual void writePlt(uint8_t *Buf, uint64_t GotEntryAddr,
                         uint64_t PltEntryAddr, int32_t Index,
                         unsigned RelOff) const {}
   virtual void addPltHeaderSymbols(InputSectionData *IS) const {}
   virtual void addPltSymbols(InputSectionData *IS, uint64_t Off) const {}
+  virtual void writeCheriPlt(uint8_t *Buf, uint64_t MctEntryOff) const {}
   // Returns true if a relocation only uses the low bits of a value such that
   // all those bits are in in the same page. For example, if the relocation
   // only uses the low 12 bits in a system with 4k pages. If this is true, the
@@ -81,6 +84,8 @@ public:
   unsigned GotPltEntrySize = 0;
   unsigned PltEntrySize;
   unsigned PltHeaderSize;
+  unsigned CheriPltEntrySize = 0;
+  unsigned CheriPltHeaderSize = 0;
 
   // At least on x86_64 positions 1 and 2 are used by the first plt entry
   // to support lazy loading.
@@ -102,6 +107,8 @@ public:
   virtual void getSymbolMemcapBounds(const SymbolBody &S, uint64_t &Base,
                                      uint64_t &Offset, uint64_t &Size) const;
   virtual uint64_t getSymbolMemcapPerms(const SymbolBody &S) const;
+  virtual uint64_t getSectionMemcapPerms(const OutputSectionBase &Sec,
+                                         const StringRef *Sym = nullptr) const;
 };
 
 uint64_t getPPC64TocBase();

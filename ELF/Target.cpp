@@ -260,14 +260,17 @@ public:
 
 template <class ELFT> class CheriTargetInfo final : public MipsTargetInfoBase<ELFT> {
 public:
-  CheriTargetInfo() : MipsTargetInfoBase<ELFT>() {}
+  CheriTargetInfo();
   RelExpr getRelExpr(uint32_t Type, const SymbolBody &S) const override;
   bool isPicRel(uint32_t Type) const override;
   uint32_t getDynRel(uint32_t Type) const override;
+  void writeCheriPlt(uint8_t *Buf, uint64_t MctEntryOff) const override;
   void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
   void getSymbolMemcapBounds(const SymbolBody &S, uint64_t &Base, uint64_t &Offset,
                              uint64_t &Size) const override;
   uint64_t getSymbolMemcapPerms(const SymbolBody &S) const override;
+  uint64_t getSectionMemcapPerms(const OutputSectionBase &Sec,
+                                 const StringRef *Sym = nullptr) const override;
 };
 } // anonymous namespace
 
@@ -376,6 +379,11 @@ void TargetInfo::getSymbolMemcapBounds(const SymbolBody &S,
 }
 
 uint64_t TargetInfo::getSymbolMemcapPerms(const SymbolBody &S) const {
+  llvm_unreachable("Target does not support capabilities");
+}
+
+uint64_t TargetInfo::getSectionMemcapPerms(const OutputSectionBase &Sec,
+                                           const StringRef *Sym) const {
   llvm_unreachable("Target does not support capabilities");
 }
 
@@ -2483,6 +2491,12 @@ bool MipsTargetInfoBase<ELFT>::usesOnlyLowPageBits(uint32_t Type) const {
 }
 
 template <class ELFT>
+CheriTargetInfo<ELFT>::CheriTargetInfo() : MipsTargetInfoBase<ELFT>() {
+  this->CheriPltEntrySize = 24;
+  this->CheriPltHeaderSize = 24; // TODO
+}
+
+template <class ELFT>
 RelExpr CheriTargetInfo<ELFT>::getRelExpr(uint32_t Type,
                                           const SymbolBody &S) const {
   // See comment in the calculateMipsRelChain.
@@ -2538,6 +2552,23 @@ uint32_t CheriTargetInfo<ELFT>::getDynRel(uint32_t Type) const {
   default:
     return MipsTargetInfoBase<ELFT>::getDynRel(Type);
   }
+}
+
+template <class ELFT>
+void CheriTargetInfo<ELFT>::writeCheriPlt(uint8_t *Buf,
+                                          uint64_t MctEntryOff) const {
+  const endianness E = ELFT::TargetEndianness;
+  // $c14 is at offset 0x3ff0 from the start of the MCT
+  MctEntryOff -= 0x3ff0;
+  // TODO: CHERI-128 needs final clc to be from offset 16
+  write32<E>(Buf, 0x3c0c0000);      // lui     $t0, %hi(offset)
+  write32<E>(Buf + 4, 0x658c0000);  // daddiu  $t0, $t0, %lo(offset)
+  write32<E>(Buf + 8, 0xd9ce6000);  // clc     $c14, $t0, 0($c14)
+  write32<E>(Buf + 12, 0xd98e0000); // clc     $c12, $zero, 0($c14)
+  write32<E>(Buf + 16, 0x49006000); // cjr     $c12
+  write32<E>(Buf + 20, 0xd9ce0002); // clc     $c14, $zero, 32($c14)
+  writeMipsHi16<E>(Buf, MctEntryOff);
+  writeMipsLo16<E>(Buf + 4, MctEntryOff);
 }
 
 template <class ELFT>
@@ -2606,6 +2637,30 @@ void CheriTargetInfo<ELFT>::getSymbolMemcapBounds(const SymbolBody &S,
   }
 }
 
+template <class ELFT>
+uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const {
+  StringRef SymName = S.getName();
+  uint64_t Base = S.getVA<ELFT>();
+  uint64_t Size = S.getSize<ELFT>();
+  if (!S.isDefined() || (Base == 0 && Size == 0)) {
+    if (S.isPreemptible())
+      error("undefined preemptible symbols are not supported yet: " + SymName);
+    else if (!S.symbol()->isWeak() && S.kind() != SymbolBody::DefinedSyntheticKind)
+      error("undefined non-weak symbols are not supported yet: " + SymName);
+
+    // Otherwise this is a weak (or synthetic) symbol, so emit a NULL capability
+    return 0;
+  }
+
+  const OutputSectionBase *Sec = S.getSection<ELFT>();
+  if (!Sec) {
+    error("missing section of symbol: " + SymName);
+    return 0;
+  }
+
+  return getSectionMemcapPerms(*Sec, &SymName);
+}
+
 // TODO: Put these definitions somewhere else
 #define CHERI_CAP_PERMISSION_ACCESS_EPCC 1024
 #define CHERI_CAP_PERMISSION_ACCESS_KCC 4096
@@ -2622,34 +2677,19 @@ void CheriTargetInfo<ELFT>::getSymbolMemcapBounds(const SymbolBody &S,
 #define CHERI_CAP_PERMISSION_PERMIT_STORE_LOCAL 64
 
 template <class ELFT>
-uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const {
-  uint64_t Base = S.getVA<ELFT>();
-  uint64_t Size = S.getSize<ELFT>();
-  if (!S.isDefined() || (Base == 0 && Size == 0)) {
-    if (S.isPreemptible())
-      error("undefined preemptible symbols are not supported yet: " + S.getName());
-    else if (!S.symbol()->isWeak() && S.kind() != SymbolBody::DefinedSyntheticKind)
-      error("undefined non-weak symbols are not supported yet: " + S.getName());
-
-    // Otherwise this is a weak (or synthetic) symbol, so emit a NULL capability
-    return 0;
-  }
-
-  const OutputSectionBase *Sec = S.getSection<ELFT>();
-  if (!Sec) {
-    error("missing section of symbol: " + S.getName());
-    return 0;
-  }
-
+uint64_t CheriTargetInfo<ELFT>::getSectionMemcapPerms(const OutputSectionBase &Sec,
+                                                      const StringRef *Sym) const {
   uint64_t Perms = 0;
   // TODO: Should this sometimes be local instead?
   Perms |= CHERI_CAP_PERMISSION_GLOBAL;
   Perms |= CHERI_CAP_PERMISSION_PERMIT_LOAD;
   // TODO: SEAL?
 
-  if (Sec->Flags & SHF_WRITE && !isRelroSection<ELFT>(Sec)) {
-    if (Sec->Flags & SHF_EXECINSTR) {
-      error("invalid permissions relocation for symbol " + S.getName() + " in writable and executable section " + Sec->getName());
+  if (Sec.Flags & SHF_WRITE && !isRelroSection<ELFT>(&Sec)) {
+    if (Sec.Flags & SHF_EXECINSTR) {
+      if (Sym)
+        error("invalid permissions relocation for symbol " + *Sym + " in writable and executable section " + Sec.getName());
+      error("invalid permissions relocation for writable and executable section " + Sec.getName());
       return 0;
     }
 
@@ -2659,7 +2699,7 @@ uint64_t CheriTargetInfo<ELFT>::getSymbolMemcapPerms(const SymbolBody &S) const 
     Perms |= CHERI_CAP_PERMISSION_PERMIT_STORE_LOCAL;
   }
 
-  if (Sec->Flags & SHF_EXECINSTR) {
+  if (Sec.Flags & SHF_EXECINSTR) {
     Perms |= CHERI_CAP_PERMISSION_PERMIT_EXECUTE;
   } else {
     Perms |= CHERI_CAP_PERMISSION_PERMIT_LOAD_CAPABILITY;

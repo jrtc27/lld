@@ -313,6 +313,10 @@ static bool needsPlt(RelExpr Expr) {
   return isRelExprOneOf<R_PLT_PC, R_PPC_PLT_OPD, R_PLT, R_PLT_PAGE_PC>(Expr);
 }
 
+static bool needsCheriPlt(RelExpr Expr) {
+  return isRelExprOneOf<R_CHERI_MCTCALL_OFF11, R_CHERI_MCTCALL_OFF32>(Expr);
+}
+
 // True if this expression is of the form Sym - X, where X is a position in the
 // file (PC, or GOT for example).
 static bool isRelExpr(RelExpr Expr) {
@@ -422,8 +426,8 @@ static RelExpr fromPlt(RelExpr Expr) {
   return Expr;
 }
 
-static RelExpr fromMctCall(RelExpr Expr) {
-  // We decided not to use a stub. Optimize a reference to the stub to a
+static RelExpr fromCheriPlt(RelExpr Expr) {
+  // We decided not to use a plt. Optimize a reference to the plt to a
   // reference to the entry point itself.
   if (Expr == R_CHERI_MCTCALL_OFF11)
     return R_CHERI_MCTCALL_OFF11_OPD;
@@ -562,8 +566,8 @@ static RelExpr adjustExpr(const elf::ObjectFile<ELFT> &File, SymbolBody &Body,
     // can call directly to the function entry point rather than using a
     // PLT-like stub to load $cp. Therefore, %mctcall(f) gets transformed to
     // %mctdata(.f).
-    if (isRelExprOneOf<R_CHERI_MCTCALL_OFF11, R_CHERI_MCTCALL_OFF32>(Expr))
-      Expr = fromMctCall(Expr);
+    if (needsCheriPlt(Expr))
+      Expr = fromCheriPlt(Expr);
     if (needsPlt(Expr))
       Expr = fromPlt(Expr);
     if (Expr == R_GOT_PC && !isAbsoluteValue<ELFT>(Body))
@@ -866,6 +870,15 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
                                      Body.getGotPltOffset<ELFT>(), !Preemptible,
                                      &Body, 0});
       }
+      continue;
+    }
+
+    if (needsCheriPlt(Expr)) {
+      if (Body.isInCheriPlt())
+        continue;
+
+      In<ELFT>::CheriPlt->addEntry(Body);
+      In<ELFT>::CheriMct->addEntry(Body, Expr);
       continue;
     }
 
