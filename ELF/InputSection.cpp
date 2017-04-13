@@ -421,6 +421,11 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
   case R_CHERI_BASE:
   case R_CHERI_OFFSET:
   case R_CHERI_SIZE: {
+    // We might get here by leaving in a dynamic relocation but adding a
+    // relocation to the section itself to write the addend for a Rel
+    // relocation. This should only happen for preemptible symbols.
+    if (Body.isPreemptible())
+      return A;
     uint64_t Base, Offset, Size;
     Target->getSymbolMemcapBounds(Body, Base, Offset, Size);
     switch (Expr) {
@@ -435,6 +440,11 @@ getRelocTargetVA(uint32_t Type, int64_t A, typename ELFT::uint P,
     }
   }
   case R_CHERI_PERMS:
+    // We might get here by leaving in a dynamic relocation but adding a
+    // relocation to the section itself to write the addend for a Rel
+    // relocation. This should only happen for preemptible symbols.
+    if (Body.isPreemptible())
+      return A;
     return Target->getSymbolMemcapPerms(Body);
   case R_CHERI_BASE_OPD:
   case R_CHERI_OFFSET_OPD:
