@@ -577,7 +577,7 @@ MipsGotSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
   const std::vector<size_t> &PiecePageEntries = PageIndexMap.lookup(InSec);
   if (InSec->kind() == InputSectionBase<ELFT>::Merge) {
     const MergeInputSection<ELFT> *MS = cast<MergeInputSection<ELFT>>(InSec);
-    const SectionPiece *Piece = MS->getSectionPiece(DR->Value);
+    const SectionPiece *Piece = MS->getSectionPiece(DR->Value + Addend);
     PieceOffset = Piece->InputOff;
     PieceIndex = Piece - &MS->Pieces[0];
   } else
