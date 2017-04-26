@@ -199,7 +199,7 @@ private:
   uint32_t PageEntriesNum = 0;
   // Map output sections referenced by MIPS GOT relocations
   // to the first index of "Page" entries allocated for this section.
-  llvm::SmallMapVector<const InputSectionBase<ELFT> *, size_t, 16> PageIndexMap;
+  llvm::SmallMapVector<const InputSectionBase<ELFT> *, std::vector<size_t>, 16> PageIndexMap;
 
   typedef std::pair<const SymbolBody *, uintX_t> GotEntry;
   typedef std::vector<GotEntry> GotEntries;
