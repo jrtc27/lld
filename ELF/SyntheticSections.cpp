@@ -499,7 +499,11 @@ void MipsGotSection<ELFT>::addEntry(SymbolBody &Sym, int64_t Addend,
     // method calculate number of "pages" required to cover all saved input
     // sections and allocate appropriate number of GOT entries.
     auto *DefSym = cast<DefinedRegular<ELFT>>(&Sym);
-    PageIndexMap.insert({DefSym->Section, {}});
+    const InputSectionBase<ELFT> *IS = DefSym->Section;
+    const MergeInputSection<ELFT> *MS = dyn_cast<MergeInputSection<ELFT>>(IS);
+    if (MS)
+      IS = MS->MergeSec;
+    PageIndexMap.insert({IS, 0});
     return;
   }
   if (Sym.isTls()) {
@@ -571,21 +575,13 @@ MipsGotSection<ELFT>::getPageEntryOffset(const SymbolBody &B,
                                          int64_t Addend) const {
   const DefinedRegular<ELFT> *DR = cast<DefinedRegular<ELFT>>(&B);
   const InputSectionBase<ELFT> *InSec = DR->Section;
+  const MergeInputSection<ELFT> *MS = dyn_cast<MergeInputSection<ELFT>>(InSec);
+  if (MS)
+    InSec = MS->MergeSec;
   const OutputSectionBase *OutSec = InSec->getOutputSection();
-
-  size_t PieceOffset, PieceIndex;
-  const std::vector<size_t> &PiecePageEntries = PageIndexMap.lookup(InSec);
-  if (InSec->kind() == InputSectionBase<ELFT>::Merge) {
-    const MergeInputSection<ELFT> *MS = cast<MergeInputSection<ELFT>>(InSec);
-    const SectionPiece *Piece = MS->getSectionPiece(DR->Value + Addend);
-    PieceOffset = Piece->InputOff;
-    PieceIndex = Piece - &MS->Pieces[0];
-  } else
-    PieceOffset = PieceIndex = 0;
-
-  uintX_t SecAddr = getMipsPageAddr(OutSec->Addr + InSec->getOffset(PieceOffset));
+  uintX_t SecAddr = getMipsPageAddr(OutSec->Addr + InSec->getOffset(0));
   uintX_t SymAddr = getMipsPageAddr(B.getVA<ELFT>(Addend));
-  uintX_t Index = PiecePageEntries[PieceIndex] + (SymAddr - SecAddr) / 0xffff;
+  uintX_t Index = PageIndexMap.lookup(InSec) + (SymAddr - SecAddr) / 0xffff;
   assert(Index < PageEntriesNum);
   return (HeaderEntriesNum + Index) * sizeof(uintX_t);
 }
@@ -638,7 +634,7 @@ unsigned MipsGotSection<ELFT>::getLocalEntriesNum() const {
 
 template <class ELFT> void MipsGotSection<ELFT>::finalize() {
   PageEntriesNum = 0;
-  for (std::pair<const InputSectionBase<ELFT> *, std::vector<size_t>> &P : PageIndexMap) {
+  for (std::pair<const InputSectionBase<ELFT> *, size_t> &P : PageIndexMap) {
     // For each input section referenced by GOT page relocations calculate
     // and save into PageIndexMap an upper bound of MIPS GOT entries required
     // to store page addresses of local symbols. We assume the worst case -
@@ -649,26 +645,8 @@ template <class ELFT> void MipsGotSection<ELFT>::finalize() {
     // Note that, while using output sections would give less wasted space, if
     // linker scripts are used the non-synthetic output sections have not yet
     // been filled, so their size is 0 and thus can't be used.
-    //
-    // For merge sections, each piece could be on a different page; another
-    // downside of using input sections. Maybe this can be smarter...
-    if (P.first->kind() == InputSectionBase<ELFT>::Merge) {
-      P.second.clear();
-      const MergeInputSection<ELFT> *MS = cast<MergeInputSection<ELFT>>(P.first);
-      for (size_t i = 0; i < MS->Pieces.size(); ++i) {
-        size_t Size;
-        if (MS->Pieces.size() - 1 == i)
-          Size = MS->Data.size() - MS->Pieces[i].InputOff;
-        else
-          Size = MS->Pieces[i+1].InputOff - MS->Pieces[i].InputOff;
-
-        P.second.push_back(PageEntriesNum);
-        PageEntriesNum += getMipsPageCount(Size);
-      }
-    } else {
-      P.second = { PageEntriesNum };
-      PageEntriesNum += getMipsPageCount(P.first->getSize());
-    }
+    P.second = PageEntriesNum;
+    PageEntriesNum += getMipsPageCount(P.first->getSize());
   }
   Size = (getLocalEntriesNum() + GlobalEntries.size() + TlsEntries.size()) *
          sizeof(uintX_t);
@@ -710,31 +688,13 @@ template <class ELFT> void MipsGotSection<ELFT>::writeTo(uint8_t *Buf) {
   P[1] = uintX_t(1) << (ELFT::Is64Bits ? 63 : 31);
   Buf += HeaderEntriesNum * sizeof(uintX_t);
   // Write 'page address' entries to the local part of the GOT.
-  for (std::pair<const InputSectionBase<ELFT> *, std::vector<size_t>> &L : PageIndexMap) {
+  for (std::pair<const InputSectionBase<ELFT> *, size_t> &L : PageIndexMap) {
     const OutputSectionBase *OutSec = L.first->getOutputSection();
-    if (L.first->kind() == InputSectionBase<ELFT>::Merge) {
-      const MergeInputSection<ELFT> *MS = cast<MergeInputSection<ELFT>>(L.first);
-      for (size_t i = 0; i < MS->Pieces.size(); ++i) {
-        size_t Size;
-        if (MS->Pieces.size() - 1 == i)
-          Size = MS->Data.size() - MS->Pieces[i].InputOff;
-        else
-          Size = MS->Pieces[i+1].InputOff - MS->Pieces[i].InputOff;
-
-        size_t PageCount = getMipsPageCount(Size);
-        uintX_t FirstPageAddr = getMipsPageAddr(OutSec->Addr + L.first->getOffset(MS->Pieces[i].InputOff));
-        for (size_t PI = 0; PI < PageCount; ++PI) {
-          uint8_t *Entry = Buf + (L.second[i] + PI) * sizeof(uintX_t);
-          writeUint<ELFT>(Entry, FirstPageAddr + PI * 0x10000);
-        }
-      }
-    } else {
-      size_t PageCount = getMipsPageCount(L.first->getSize());
-      uintX_t FirstPageAddr = getMipsPageAddr(OutSec->Addr + L.first->getOffset(0));
-      for (size_t PI = 0; PI < PageCount; ++PI) {
-        uint8_t *Entry = Buf + (L.second[0] + PI) * sizeof(uintX_t);
-        writeUint<ELFT>(Entry, FirstPageAddr + PI * 0x10000);
-      }
+    size_t PageCount = getMipsPageCount(L.first->getSize());
+    uintX_t FirstPageAddr = getMipsPageAddr(OutSec->Addr + L.first->getOffset(0));
+    for (size_t PI = 0; PI < PageCount; ++PI) {
+      uint8_t *Entry = Buf + (L.second + PI) * sizeof(uintX_t);
+      writeUint<ELFT>(Entry, FirstPageAddr + PI * 0x10000);
     }
   }
   Buf += PageEntriesNum * sizeof(uintX_t);
