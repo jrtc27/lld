@@ -631,7 +631,8 @@ template <class ELFT> bool elf::isRelroSection(const OutputSectionBase *Sec) {
     return true;
   StringRef S = Sec->getName();
   return S == ".data.rel.ro" || S == ".ctors" || S == ".dtors" || S == ".jcr" ||
-         S == ".eh_frame" || S == ".openbsd.randomdata" || S == "__cap_relocs";
+         S == ".eh_frame" || S == ".openbsd.randomdata" || S == "__cap_relocs" ||
+         S == ".opd";
 }
 
 template <class ELFT>
