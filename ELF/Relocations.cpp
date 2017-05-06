@@ -717,7 +717,7 @@ static void scanRelocs(InputSectionBase<ELFT> &C, ArrayRef<RelTy> Rels) {
 
   // HACK: clang emits a read-only __cap_relocs, but for PIC code we need to
   //       emit dynamic relocations for its contents (REL32/64/NONE).
-  if (Config->isMIPS() && Config->pic() && C.Name == "__cap_relocs") {
+  if (Config->isMIPS() && C.Name == "__cap_relocs") {
     IsWrite = true;
   }
 
