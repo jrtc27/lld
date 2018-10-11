@@ -132,12 +132,14 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(StringRef Emul) {
           .Case("elf32_x86_64", {ELF32LEKind, EM_X86_64})
           .Cases("elf32btsmip", "elf32btsmipn32", {ELF32BEKind, EM_MIPS})
           .Cases("elf32ltsmip", "elf32ltsmipn32", {ELF32LEKind, EM_MIPS})
-          .Case("elf32lriscv", {ELF32LEKind, EM_RISCV})
+          .Cases("elf32lriscv", "elf32lriscv_ilp32", "elf32lriscv_ilp32f",
+                 {ELF32LEKind, EM_RISCV})
           .Case("elf32ppc", {ELF32BEKind, EM_PPC})
           .Case("elf64btsmip", {ELF64BEKind, EM_MIPS})
           .Case("elf64btsmip_cheri", {ELF64BEKind, EM_MIPS})
           .Case("elf64ltsmip", {ELF64LEKind, EM_MIPS})
-          .Case("elf64lriscv", {ELF64LEKind, EM_RISCV})
+          .Cases("elf64lriscv", "elf64lriscv_lp64", "elf64lriscv_lp64f",
+                 {ELF64LEKind, EM_RISCV})
           .Case("elf64ppc", {ELF64BEKind, EM_PPC64})
           .Case("elf64lppc", {ELF64LEKind, EM_PPC64})
           .Cases("elf_amd64", "elf_x86_64", {ELF64LEKind, EM_X86_64})
