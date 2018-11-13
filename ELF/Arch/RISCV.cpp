@@ -47,7 +47,6 @@ RISCV::RISCV() {
   NoneRel = R_RISCV_NONE;
   CopyRel = R_RISCV_COPY;
   RelativeRel = R_RISCV_RELATIVE;
-  GotRel = Config->Is64 ? R_RISCV_64 : R_RISCV_32;
   PltRel = R_RISCV_JUMP_SLOT;
   GotEntrySize = Config->Wordsize;
   GotPltEntrySize = Config->Wordsize;
@@ -56,10 +55,12 @@ RISCV::RISCV() {
   GotPltHeaderEntriesNum = 2;
   GotBaseSymInGotPlt = false;
   if (Config->Is64) {
+    GotRel = R_RISCV_64;
     TlsGotRel = R_RISCV_TLS_TPREL64;
     TlsModuleIndexRel = R_RISCV_TLS_DTPMOD64;
     TlsOffsetRel = R_RISCV_TLS_DTPREL64;
   } else {
+    GotRel = R_RISCV_32;
     TlsGotRel = R_RISCV_TLS_TPREL32;
     TlsModuleIndexRel = R_RISCV_TLS_DTPMOD32;
     TlsOffsetRel = R_RISCV_TLS_DTPREL32;
@@ -345,11 +346,10 @@ void RISCV::relocateOne(uint8_t *Loc, const RelType Type,
   case R_RISCV_TLS_DTPREL32:
     // The pointer in dynamic thread vector (DTV) points to 0x800 past the
     // TLS block.
-    static constexpr uint64_t TLS_DTP_OFFSET = 0x800;
-    write32le(Loc, Val - TLS_DTP_OFFSET);
+    write32le(Loc, Val - 0x800);
     return;
   case R_RISCV_TLS_DTPREL64:
-    write64le(Loc, Val - TLS_DTP_OFFSET);
+    write64le(Loc, Val - 0x800);
     return;
   case R_RISCV_TLS_TPREL32:
     write32le(Loc, Val);
