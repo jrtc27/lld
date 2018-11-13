@@ -31,7 +31,6 @@ public:
   void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 
   void writeGotPltHeader(uint8_t *Buf) const override;
-  void writeGotHeader(uint8_t *Buf) const override;
   void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
 
   void writePltHeader(uint8_t *Buf) const override;
@@ -54,7 +53,6 @@ RISCV::RISCV() {
   GotPltEntrySize = Config->Wordsize;
   PltEntrySize = 16;
   PltHeaderSize = 32;
-  GotHeaderEntriesNum = 1;
   GotPltHeaderEntriesNum = 2;
   GotBaseSymInGotPlt = false;
 }
@@ -104,16 +102,9 @@ bool RISCV::usesOnlyLowPageBits(RelType Type) const {
 
 void RISCV::writeGotPltHeader(uint8_t *Buf) const {
   // These entries are used by the plt header and will be filled by the dynamic
-  // linker. Write placeholder values as same as ld.bfd.
-  writeUint(Buf, -1);                  // _dl_runtime_resolve
+  // linker.
+  writeUint(Buf, 0);                    // _dl_runtime_resolve
   writeUint(Buf + GotPltEntrySize, 0); // link_map
-}
-
-void RISCV::writeGotHeader(uint8_t *Buf) const {
-  // _GLOBAL_OFFSET_TABLE_ points to the start of .got section which contains
-  // the address of .dynamic section.
-  if (ElfSym::GlobalOffsetTable)
-    writeUint(Buf, In.Dynamic->getVA());
 }
 
 void RISCV::writeGotPlt(uint8_t *Buf, const Symbol &S) const {

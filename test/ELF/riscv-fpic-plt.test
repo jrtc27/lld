@@ -23,7 +23,7 @@
 # 10004:       020080e7                jalr    32(ra) # 21020 <f@plt>
 #
 # CHECK: - Name:            .got.plt
-# CHECK:   Content:         FFFFFFFF0000000000100200
+# CHECK:   Content:         '000000000000000000100200'
 #
 # CHECK: - Name:            .plt
 # CHECK:   Content:         97F3FFFF3303C34103AE0300130343FD938203001353230083A2420067000E0017FEFFFF032E8EFE67030E0013000000
