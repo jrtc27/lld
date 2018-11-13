@@ -55,6 +55,15 @@ RISCV::RISCV() {
   PltHeaderSize = 32;
   GotPltHeaderEntriesNum = 2;
   GotBaseSymInGotPlt = false;
+  if (Config->Is64) {
+    TlsGotRel = R_RISCV_TLS_TPREL64;
+    TlsModuleIndexRel = R_RISCV_TLS_DTPMOD64;
+    TlsOffsetRel = R_RISCV_TLS_DTPREL64;
+  } else {
+    TlsGotRel = R_RISCV_TLS_TPREL32;
+    TlsModuleIndexRel = R_RISCV_TLS_DTPMOD32;
+    TlsOffsetRel = R_RISCV_TLS_DTPREL32;
+  }
 }
 
 static uint32_t getEFlags(InputFile *F) {
@@ -174,9 +183,17 @@ RelExpr RISCV::getRelExpr(const RelType Type, const Symbol &S,
   case R_RISCV_PCREL_LO12_S:
     return R_RISCV_PC_INDIRECT;
   case R_RISCV_GOT_HI20:
+  case R_RISCV_TLS_GOT_HI20:
     return R_GOT_PC;
+  case R_RISCV_TPREL_HI20:
+  case R_RISCV_TPREL_LO12_I:
+  case R_RISCV_TPREL_LO12_S:
+    return R_TLS;
+  case R_RISCV_TLS_GD_HI20:
+    return R_TLSGD_PC;
   case R_RISCV_ALIGN:
   case R_RISCV_RELAX:
+  case R_RISCV_TPREL_ADD:
     return R_HINT;
   default:
     return R_ABS;
@@ -286,7 +303,10 @@ void RISCV::relocateOne(uint8_t *Loc, const RelType Type,
   }
 
   case R_RISCV_PCREL_HI20:
+  case R_RISCV_TPREL_HI20:
   case R_RISCV_GOT_HI20:
+  case R_RISCV_TLS_GOT_HI20:
+  case R_RISCV_TLS_GD_HI20:
   case R_RISCV_HI20: {
     checkInt(Loc, Val, 32, Type);
     uint32_t Hi = Val + 0x800;
@@ -295,6 +315,7 @@ void RISCV::relocateOne(uint8_t *Loc, const RelType Type,
   }
 
   case R_RISCV_PCREL_LO12_I:
+  case R_RISCV_TPREL_LO12_I:
   case R_RISCV_LO12_I: {
     checkInt(Loc, Val, 32, Type);
     uint32_t Hi = Val + 0x800;
@@ -304,6 +325,7 @@ void RISCV::relocateOne(uint8_t *Loc, const RelType Type,
   }
 
   case R_RISCV_PCREL_LO12_S:
+  case R_RISCV_TPREL_LO12_S:
   case R_RISCV_LO12_S: {
     checkInt(Loc, Val, 32, Type);
     uint32_t Hi = Val + 0x800;
@@ -313,6 +335,30 @@ void RISCV::relocateOne(uint8_t *Loc, const RelType Type,
     write32le(Loc, (read32le(Loc) & 0x1FFF07F) | Imm11_5 | Imm4_0);
     return;
   }
+
+  case R_RISCV_TLS_DTPMOD32:
+    write32le(Loc, 1);
+    return;
+  case R_RISCV_TLS_DTPMOD64:
+    write64le(Loc, 1);
+    return;
+  case R_RISCV_TLS_DTPREL32:
+    // The pointer in dynamic thread vector (DTV) points to 0x800 past the
+    // TLS block.
+    static constexpr uint64_t TLS_DTP_OFFSET = 0x800;
+    write32le(Loc, Val - TLS_DTP_OFFSET);
+    return;
+  case R_RISCV_TLS_DTPREL64:
+    write64le(Loc, Val - TLS_DTP_OFFSET);
+    return;
+  case R_RISCV_TLS_TPREL32:
+    write32le(Loc, Val);
+    return;
+  case R_RISCV_TLS_TPREL64:
+    write64le(Loc, Val);
+    return;
+  case R_RISCV_TPREL_ADD:
+    return; // Do nothing
 
   case R_RISCV_ADD8:
     *Loc += Val;
