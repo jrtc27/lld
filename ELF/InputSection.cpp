@@ -578,7 +578,7 @@ Relocation *lld::elf::getRISCVPCRelHi20(const Symbol *Sym, uint64_t Addend) {
   auto Range = std::equal_range(IS->Relocations.begin(), IS->Relocations.end(),
                                 D->Value, RelocationOffsetComparator{});
   for (auto It = std::get<0>(Range); It != std::get<1>(Range); ++It)
-    if (isRelExprOneOf<R_PC, R_PLT_PC, R_GOT_PC>(It->Expr))
+    if (isRelExprOneOf<R_PC, R_PLT_PC, R_GOT_PC, R_TLSGD_PC>(It->Expr))
       return &*It;
 
   error("R_RISCV_PCREL_LO12 relocation points to " + IS->getObjMsg(D->Value) +
@@ -606,6 +606,9 @@ static int64_t getTlsTpOffset() {
     // offset to reach 0x1000 of TCB/thread-library data and 0xf000 of the
     // program's TLS segment.
     return -0x7000;
+  case EM_RISCV:
+    // RISC-V's tp points to the start of the executable's TLS segment.
+    return 0;
   default:
     llvm_unreachable("unhandled Config->EMachine");
   }
