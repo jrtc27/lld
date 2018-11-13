@@ -705,8 +705,8 @@ template <class RelTy> static RelType getMipsN32RelType(RelTy *&Rel, RelTy *End)
 // output offset. That isn't cheap.
 //
 // This class is to speed up the offset computation. When we process
-// relocations, we access offsets in the monotonically increasing
-// order. So we can optimize for that access pattern.
+// relocations, we access offsets in one or two monotonically increasing
+// sequences. So we can optimize for that access pattern.
 //
 // For sections other than .eh_frame, this class doesn't do anything.
 namespace {
@@ -718,11 +718,18 @@ public:
   }
 
   // Translates offsets in input sections to offsets in output sections.
-  // Given offset must increase monotonically. We assume that Piece is
-  // sorted by InputOff.
+  // Given offset should increase monotonically for best performance. We
+  // assume that Piece is sorted by InputOff.
   uint64_t get(uint64_t Off) {
     if (Pieces.empty())
       return Off;
+
+    // If we ever jump backwards, reset from the start. RISC-V has its
+    // .eh_frame relocations emitted by gas in two batches, in which case we
+    // can reset I to 0 and expect to get another monotonically increasing
+    // sequence.
+    if (Off < Pieces[I].InputOff)
+      I = 0;
 
     while (I != Pieces.size() && Pieces[I].InputOff + Pieces[I].Size <= Off)
       ++I;
