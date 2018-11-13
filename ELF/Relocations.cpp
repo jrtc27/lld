@@ -403,7 +403,7 @@ static bool isStaticLinkTimeConstant(RelExpr E, RelType Type, const Symbol &Sym,
   if (E == R_GOT || E == R_PLT || E == R_TLSDESC)
     return Target->usesOnlyLowPageBits(Type) || !Config->Pic;
 
-  if (Sym.IsPreemptible)
+  if (Sym.IsPreemptible && Target->respectsSymbolIsPreemptible(Type))
     return false;
   if (!Config->Pic)
     return true;

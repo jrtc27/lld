@@ -39,6 +39,7 @@ public:
                 int32_t Index, unsigned RelOff) const override;
 
   bool usesOnlyLowPageBits(RelType Type) const override;
+  bool respectsSymbolIsPreemptible(RelType Type) const override;
 };
 
 } // end anonymous namespace
@@ -108,6 +109,12 @@ bool RISCV::usesOnlyLowPageBits(RelType Type) const {
          Type == R_RISCV_SUB6 ||
          Type == R_RISCV_SET6 || Type == R_RISCV_SET8 ||
          Type == R_RISCV_SET16 || Type == R_RISCV_SET32;
+}
+
+bool RISCV::respectsSymbolIsPreemptible(RelType Type) const {
+  return Type != R_RISCV_JAL && Type != R_RISCV_BRANCH &&
+         Type != R_RISCV_CALL && Type != R_RISCV_PCREL_HI20 &&
+         Type != R_RISCV_RVC_BRANCH && Type != R_RISCV_RVC_JUMP;
 }
 
 void RISCV::writeGotPltHeader(uint8_t *Buf) const {
