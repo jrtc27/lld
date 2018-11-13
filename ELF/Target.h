@@ -55,6 +55,12 @@ public:
   // a dynamic relocation.
   virtual bool usesOnlyLowPageBits(RelType Type) const;
 
+  // Returns true if a relocation respects whether a symbol is preemptible, or
+  // false if the relocation always binds locally akin to -Bsymbolic.
+  virtual bool respectsSymbolIsPreemptible(RelType Type) const {
+    return true;
+  }
+
   // Decide whether a Thunk is needed for the relocation from File
   // targeting S.
   virtual bool needsThunk(RelExpr Expr, RelType RelocType,
