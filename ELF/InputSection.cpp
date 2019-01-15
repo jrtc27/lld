@@ -980,7 +980,8 @@ void InputSectionBase::relocateAlloc(uint8_t *Buf, uint8_t *BufEnd) {
           if (!HiRel)
             break;
           uint64_t SymAddr = getRelocTargetVA(File, HiRel->Type, HiRel->Addend,
-                                              0, *HiRel->Sym, HiRel->Expr);
+                                              0, *HiRel->Sym, HiRel->Expr,
+                                              this, HiRel->Offset);
 
           const auto convertToAbs = [&] {
             uint32_t Insn = read32le(BufLoc);
